@@ -17,8 +17,13 @@ the tests drive the loop with a fake client and no API key.
 """
 
 import json
+from pathlib import Path
 
 from interview import DIMENSIONS, STAGES, TOOLS, InterviewError, dispatch
+
+# Markdown files here are loaded into the interviewer's instructions. The
+# private subfolder is ignored by this public repository; see context/README.md.
+CONTEXT_DIR = Path(__file__).resolve().parent / "context"
 
 MODEL = "claude-opus-5"
 MAX_TOKENS = 16000
@@ -38,24 +43,68 @@ class SessionError(ValueError):
     """Raised when a session is asked to do something its state does not allow."""
 
 
-def build_system(prompt):
+def load_context(directory=CONTEXT_DIR):
+    """Read every Markdown reference file under ``directory``, in a stable order.
+
+    Returns a list of (relative path, text). README files are skipped because
+    they describe the folder, not interviews. A missing or empty folder is
+    fine: anyone who clones the public repository has no private context.
+
+    The order is sorted so the instructions are byte-identical from one
+    interview to the next, which is what lets them be cached.
+    """
+    directory = Path(directory)
+    if not directory.is_dir():
+        return []
+    files = []
+    for path in sorted(directory.rglob("*.md"), key=lambda p: p.relative_to(directory).as_posix()):
+        if path.name.lower() == "readme.md" or ".git" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8").strip()
+        if text:
+            files.append((path.relative_to(directory).as_posix(), text))
+    return files
+
+
+def build_system(state, context=()):
+    prompt, level = state.prompt, state.level
     stage_lines = "\n".join(
-        "  %d. %s -- %s (budget: %d answer%s)"
-        % (i + 1, s.key, s.brief, s.probe_budget, "" if s.probe_budget == 1 else "s")
+        "  %d. %s -- %s (budget: %d candidate message%s)"
+        % (i + 1, s.label, s.brief, s.probe_budget, "" if s.probe_budget == 1 else "s")
         for i, s in enumerate(STAGES)
     )
     rubric_lines = "\n".join("  %s: %s" % (k, v) for k, v in DIMENSIONS.items())
+    if context:
+        reference = "\n\n".join("--- %s ---\n%s" % (name, text) for name, text in context)
+    else:
+        reference = "(none provided)"
+
     return """You are running a practice product sense interview. The person you are \
 talking to is rehearsing, not being hired.
 
 THE PROMPT YOU ARE INTERVIEWING ON
 %s
 
-PRIVATE NOTES -- context for you only, never read these out
+COMPANY BRIEF -- the situation behind the prompt. Share a detail only when the candidate
+asks about it, the way a real interviewer would. Never recite the brief.
+%s
+
+PRIVATE NOTES -- what strong answers to this prompt tend to cover. Never read these out.
+%s
+
+CANDIDATE LEVEL: %s
 %s
 
 HOW TO RUN IT
-- Ask exactly one question, then stop and wait. Never stack two questions into one turn.
+- Open by stating the prompt and inviting clarifying questions.
+- Each turn, say one thing and stop: one question, or, in the Clarify stage, your answers to
+  their questions. Never stack two questions into one turn.
+- In the Clarify stage the candidate asks and you answer. Answer questions about the
+  question itself (what terms mean, how something works) directly from the brief. If they
+  ask you to decide product context for them (company size, market, timeline, scope), ask
+  what they would assume instead. If they ask something the brief does not cover, tell them
+  to state an assumption. Reward questions whose answers would change what gets built; a
+  question that would not change their direction is a weaker signal, not a stronger one.
 - Stay in role. Do not coach, hint, praise, or evaluate out loud while the interview is
   running. Every judgement goes into record_signal; all feedback waits for the debrief.
 - Call record_signal as soon as you can judge a dimension. Do not save it all for the end.
@@ -69,22 +118,32 @@ HOW TO RUN IT
 STAGES
 %s
 
-RUBRIC
+RUBRIC -- one dimension per stage
 %s
 
 SCORING
-1 missing, 2 partial, 3 solid, 4 strong. A 3 is a genuinely good answer. Reserve 4 for
-something you would repeat to a colleague. Inflated scores make this exercise worthless,
-so score what was said, not what you think they meant.
+1 missing, 2 partial, 3 solid, 4 strong, judged against the bar for the candidate's level.
+A 3 is a genuinely good answer. Reserve 4 for something you would repeat to a colleague.
+Inflated scores make this exercise worthless, so score what was said, not what you think
+they meant.
 
 TONE
 Warm, direct, unhurried. Press once on a vague answer -- "which one?", "why that group?"
 -- then take what you get and move on. Not sycophantic, not hostile. A short question is
-usually better than a long one.""" % (
+usually better than a long one.
+
+REFERENCE MATERIAL -- guidance on what strong answers look like at each stage. Use it to
+judge and to choose what to probe. Never quote it, name it, or coach from it during the
+interview.
+%s""" % (
         prompt.question,
+        prompt.brief,
         prompt.context,
+        level.label,
+        level.bar,
         stage_lines,
         rubric_lines,
+        reference,
     )
 
 
@@ -93,13 +152,25 @@ class LiveSession:
 
     mode = "live"
 
-    def __init__(self, state, client, model=MODEL, effort="high", max_turns=MAX_TURNS):
+    def __init__(
+        self, state, client, model=MODEL, effort="high", max_turns=MAX_TURNS, context=()
+    ):
         self.state = state
         self.client = client
         self.model = model
         self.effort = effort
         self.max_turns = max_turns
-        self.system = build_system(state.prompt)
+        self.context = list(context)
+        # A list block so it can carry cache_control. The instructions are
+        # identical on every turn of an interview, so after the first turn they
+        # are read from the cache instead of being paid for in full again.
+        self.system = [
+            {
+                "type": "text",
+                "text": build_system(state, self.context),
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
         self.history = []
         self.turns = 0
         self.started = False
@@ -274,7 +345,8 @@ def snapshot(session):
     view = {
         "mode": session.mode,
         "prompt": {"key": state.prompt.key, "question": state.prompt.question},
-        "stages": [s.key for s in STAGES],
+        "level": {"key": state.level.key, "label": state.level.label},
+        "stages": [{"key": s.key, "label": s.label} for s in STAGES],
         "stage_index": state.stage_index,
         "awaiting_answer": session.awaiting_answer,
         "done": session.done,

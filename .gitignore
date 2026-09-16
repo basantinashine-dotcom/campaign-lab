@@ -4,3 +4,7 @@ node_modules/
 *.tar.gz
 __pycache__/
 *.pyc
+
+# Private reference material for Product Sense Mock. It is its own private repo
+# (product-sense-context); see agents/product-sense-mock/context/README.md.
+agents/product-sense-mock/context/private/

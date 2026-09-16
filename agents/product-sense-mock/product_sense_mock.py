@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Product sense mock interview agent, in the terminal.
 
-Claude plays the interviewer; you answer. It works through five stages, scores
-six rubric dimensions as it goes, and files a debrief at the end.
+Claude plays the interviewer; you answer. It works through six stages -- Clarify,
+Strategy, Users, Pain points, Solutions, MVP -- scores each one as it goes, and
+files a debrief at the end.
 
 This file only handles the terminal: reading answers and printing. The agent
 loop lives in session.py and the offline interviewer in offline.py, shared with
@@ -19,9 +20,9 @@ import json
 import sys
 from datetime import date
 
-from interview import DEFAULT_PROMPT, PROMPTS, render_debrief
+from interview import DEFAULT_LEVEL, DEFAULT_PROMPT, LEVELS, PROMPTS, STAGES, render_debrief
 from offline import OfflineSession, new_state
-from session import MODEL, LiveSession, explain_api_error
+from session import MODEL, LiveSession, explain_api_error, load_context
 
 HELP = """
 Commands
@@ -106,6 +107,12 @@ def build_parser():
         help="which practice prompt to use (default: %(default)s)",
     )
     parser.add_argument(
+        "--level",
+        default=DEFAULT_LEVEL,
+        choices=sorted(LEVELS),
+        help="the bar you are judged against: pm or senior (default: %(default)s)",
+    )
+    parser.add_argument(
         "--list-prompts", action="store_true", help="print the prompts and exit"
     )
     parser.add_argument(
@@ -140,10 +147,12 @@ def main(argv=None):
             print("%s\n  %s\n" % (key, PROMPTS[key].question))
         return 0
 
-    state = new_state(args.prompt)
+    state = new_state(args.prompt, args.level)
+    stage_names = ", ".join(s.label for s in STAGES)
 
     if args.offline:
         print("Prompt: %s" % state.prompt.question)
+        print("Level: %s. Stages: %s." % (state.level.label, stage_names))
         drive(OfflineSession(state), args.trace)
     else:
         try:
@@ -154,10 +163,19 @@ def main(argv=None):
                 "  pip install -r requirements.txt\n"
                 "Or run with --offline to practice the flow without it."
             )
+        context = load_context()
         print("Prompt: %s\n" % state.prompt.question)
-        print("Five stages, six rubric dimensions. Type /help for commands.")
+        print("Level: %s. Stages: %s." % (state.level.label, stage_names))
+        print(
+            "Reference files: %s. Type /help for commands."
+            % (", ".join(name for name, _ in context) if context else "none")
+        )
         session = LiveSession(
-            state, anthropic.Anthropic(), model=args.model, effort=args.effort
+            state,
+            anthropic.Anthropic(),
+            model=args.model,
+            effort=args.effort,
+            context=context,
         )
         drive(session, args.trace, anthropic=anthropic, model=args.model)
 

@@ -12,6 +12,7 @@ import unittest
 
 from interview import (
     DIMENSIONS,
+    LEVELS,
     MAX_SCORE,
     PROMPTS,
     STAGES,
@@ -41,29 +42,33 @@ class RecordSignalTests(unittest.TestCase):
     def test_rejects_out_of_range_score(self):
         for bad in (0, 5, -1):
             with self.assertRaises(InterviewError):
-                self.state.record_signal("problem_framing", bad, "evidence", "gap")
+                self.state.record_signal("clarifying", bad, "evidence", "gap")
 
     def test_rejects_non_integer_score(self):
         for bad in ("3", 3.5, True, None):
             with self.assertRaises(InterviewError):
-                self.state.record_signal("problem_framing", bad, "evidence", "gap")
+                self.state.record_signal("clarifying", bad, "evidence", "gap")
 
     def test_rejects_empty_evidence(self):
         with self.assertRaises(InterviewError):
-            self.state.record_signal("problem_framing", 3, "   ", "gap")
+            self.state.record_signal("clarifying", 3, "   ", "gap")
 
     def test_requires_gap_below_top_score(self):
         with self.assertRaises(InterviewError):
-            self.state.record_signal("problem_framing", 3, "evidence", "")
+            self.state.record_signal("clarifying", 3, "evidence", "")
 
     def test_top_score_may_omit_gap(self):
-        result = self.state.record_signal("problem_framing", MAX_SCORE, "evidence", "")
+        result = self.state.record_signal("clarifying", MAX_SCORE, "evidence", "")
         self.assertEqual(result["recorded"]["label"], "strong")
 
     def test_reports_uncovered_dimensions_in_stage(self):
-        self.state.stage_index = 1  # users: segmentation + pain points
+        self.state.stage_index = 1  # strategy
+        # A signal for a different stage leaves this stage's dimension uncovered.
         result = self.state.record_signal("user_segmentation", 3, "picked new buyers", "why")
-        self.assertEqual(result["stage_uncovered"], ["pain_points"])
+        self.assertEqual(result["stage_uncovered"], ["strategy"])
+        result = self.state.record_signal("strategy", 3, "tied it to the mission", "why now")
+        self.assertEqual(result["stage_uncovered"], [])
+        self.assertIn("advance_stage", result["guidance"])
 
 
 class ProbeBudgetTests(unittest.TestCase):
@@ -106,7 +111,7 @@ class AdvanceStageTests(unittest.TestCase):
 
     def test_reports_dimensions_left_unassessed(self):
         result = self.state.advance_stage("out of time")
-        self.assertEqual(result["left_unassessed"], ["problem_framing"])
+        self.assertEqual(result["left_unassessed"], ["clarifying"])
 
     def test_past_final_stage_points_at_debrief(self):
         for _ in range(len(STAGES)):
@@ -126,7 +131,7 @@ class ScorecardTests(unittest.TestCase):
         self.state = InterviewState(prompt=PROMPTS["grocery-reorder"])
 
     def test_unassessed_dimensions_are_marked_not_scored_zero(self):
-        self.state.record_signal("problem_framing", 3, "evidence", "gap")
+        self.state.record_signal("clarifying", 3, "evidence", "gap")
         card = self.state.scorecard()
         self.assertEqual(len(card["rows"]), len(DIMENSIONS))
         self.assertEqual(card["assessed"], 1)
@@ -137,10 +142,10 @@ class ScorecardTests(unittest.TestCase):
         self.assertEqual(unassessed[0]["label"], "not assessed")
 
     def test_weakest_returns_lowest_and_breaks_ties_in_rubric_order(self):
-        self.state.record_signal("problem_framing", 2, "evidence", "gap")
-        self.state.record_signal("metrics", 2, "evidence", "gap")
-        self.state.record_signal("solution", 4, "evidence", "")
-        self.assertEqual(self.state.weakest(), "problem_framing")
+        self.state.record_signal("clarifying", 2, "evidence", "gap")
+        self.state.record_signal("mvp", 2, "evidence", "gap")
+        self.state.record_signal("solutions", 4, "evidence", "")
+        self.assertEqual(self.state.weakest(), "clarifying")
 
     def test_weakest_is_none_before_anything_is_recorded(self):
         self.assertIsNone(self.state.weakest())
@@ -151,7 +156,7 @@ class EndInterviewTests(unittest.TestCase):
         self.state = InterviewState(prompt=PROMPTS["grocery-reorder"])
 
     def test_requires_strengths_once_something_is_assessed(self):
-        self.state.record_signal("problem_framing", 3, "evidence", "gap")
+        self.state.record_signal("clarifying", 3, "evidence", "gap")
         with self.assertRaises(InterviewError):
             self.state.end_interview("verdict", [], ["do better"], "next")
 
@@ -170,7 +175,7 @@ class EndInterviewTests(unittest.TestCase):
             self.state.end_interview("verdict", [], [], "next")
 
     def test_rejects_blank_entries(self):
-        self.state.record_signal("problem_framing", 3, "evidence", "gap")
+        self.state.record_signal("clarifying", 3, "evidence", "gap")
         with self.assertRaises(InterviewError):
             self.state.end_interview("verdict", ["good"], ["   "], "next")
 
@@ -193,7 +198,7 @@ class DispatchTests(unittest.TestCase):
             state,
             "record_signal",
             {
-                "dimension": "problem_framing",
+                "dimension": "clarifying",
                 "score": 3,
                 "evidence": "scoped it",
                 "gap": "name a goal",
@@ -202,20 +207,48 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(result["recorded"]["score"], 3)
 
 
+class FrameworkTests(unittest.TestCase):
+    def test_stages_follow_the_framework_in_order(self):
+        self.assertEqual(
+            [s.label for s in STAGES],
+            ["Clarify", "Strategy", "Users", "Pain points", "Solutions", "MVP"],
+        )
+
+    def test_every_dimension_is_scored_by_exactly_one_stage(self):
+        focus = [d for s in STAGES for d in s.focus]
+        self.assertEqual(sorted(focus), sorted(DIMENSIONS))
+        self.assertEqual(len(focus), len(set(focus)))
+
+    def test_metrics_are_part_of_mvp(self):
+        self.assertIn("measured", DIMENSIONS["mvp"])
+        self.assertIn("counter-metric", DIMENSIONS["mvp"])
+
+    def test_every_prompt_has_a_company_brief(self):
+        for prompt in PROMPTS.values():
+            self.assertGreater(len(prompt.brief), 100, prompt.key)
+
+    def test_levels_set_different_bars(self):
+        self.assertEqual(set(LEVELS), {"pm", "senior"})
+        self.assertNotEqual(LEVELS["pm"].bar, LEVELS["senior"].bar)
+        self.assertIn("competitive gap", LEVELS["senior"].bar)
+
+
 class RenderTests(unittest.TestCase):
     def test_reports_total_over_assessed_only(self):
         state = InterviewState(prompt=PROMPTS["grocery-reorder"])
-        state.record_signal("problem_framing", 3, "evidence", "gap")
-        state.record_signal("metrics", 4, "evidence", "")
+        state.record_signal("clarifying", 3, "evidence", "gap")
+        state.record_signal("mvp", 4, "evidence", "")
         state.end_interview("verdict", ["good"], ["better"], "next")
         report = render_debrief(state, when="2026-09-16")
-        self.assertIn("**Score: 7 / 8** across 2 assessed dimensions.", report)
+        self.assertIn("**Score: 7 / 8** across 2 assessed stages.", report)
         self.assertIn("not assessed", report)
         self.assertIn("2026-09-16", report)
+        self.assertIn("**Level:** PM", report)
+        self.assertIn("| Clarify | 3 solid |", report)
 
     def test_escapes_pipes_so_the_table_survives(self):
         state = InterviewState(prompt=PROMPTS["grocery-reorder"])
-        state.record_signal("problem_framing", 2, "a | b", "more | detail")
+        state.record_signal("clarifying", 2, "a | b", "more | detail")
         state.end_interview("verdict", ["good"], ["better"], "next")
         report = render_debrief(state)
         self.assertIn("a \\| b", report)
@@ -223,7 +256,7 @@ class RenderTests(unittest.TestCase):
 
 class HeuristicTests(unittest.TestCase):
     def test_empty_answer_scores_the_floor(self):
-        score, evidence, gap = heuristic_score("problem_framing", "")
+        score, evidence, gap = heuristic_score("clarifying", "")
         self.assertEqual(score, 1)
         self.assertTrue(evidence)
         self.assertTrue(gap)
@@ -244,7 +277,7 @@ class HeuristicTests(unittest.TestCase):
             self.assertLessEqual(score, MAX_SCORE)
 
     def test_long_evidence_is_truncated(self):
-        _, evidence, _ = heuristic_score("solution", "word " * 200)
+        _, evidence, _ = heuristic_score("solutions", "word " * 200)
         self.assertLessEqual(len(evidence), 140)
 
 
@@ -275,7 +308,7 @@ class OfflineRunTests(unittest.TestCase):
         self.assertGreater(len(asked), len(STAGES))
         self.assertTrue(state.finished)
 
-    def test_strong_answers_skip_the_follow_up(self):
+    def test_strong_answers_skip_the_follow_up_except_in_clarify(self):
         asked = []
 
         def ask(question):
@@ -284,11 +317,20 @@ class OfflineRunTests(unittest.TestCase):
 
         state = new_state("grocery-reorder")
         run_offline(state, ask=ask, say=lambda t: None)
-        self.assertEqual(len(asked), len(STAGES))
+        # Clarify always takes a second turn, because that is where offline mode
+        # hands over the company brief instead of answering questions.
+        self.assertEqual(len(asked), len(STAGES) + 1)
+        self.assertIn(state.prompt.brief, asked[1])
 
-    def test_unknown_prompt_key_raises(self):
+    def test_unknown_prompt_or_level_raises(self):
         with self.assertRaises(KeyError):
             new_state("no-such-prompt")
+        with self.assertRaises(KeyError):
+            new_state("grocery-reorder", "intern")
+
+    def test_level_defaults_to_pm_and_can_be_chosen(self):
+        self.assertEqual(new_state("grocery-reorder").level.key, "pm")
+        self.assertEqual(new_state("grocery-reorder", "senior").level.label, "Senior PM+")
 
     def test_debrief_renders_for_every_prompt(self):
         for key in PROMPTS:
