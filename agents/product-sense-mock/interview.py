@@ -310,10 +310,24 @@ class InterviewState:
         if not headline or not headline.strip():
             raise InterviewError("Headline cannot be empty.")
         for name, items in (("strengths", strengths), ("improvements", improvements)):
-            if not isinstance(items, list) or not items:
-                raise InterviewError("%s must be a non-empty list." % name)
+            if not isinstance(items, list):
+                raise InterviewError("%s must be a list." % name)
             if any(not str(i).strip() for i in items):
                 raise InterviewError("%s cannot contain blank entries." % name)
+        if not improvements:
+            raise InterviewError("improvements must name at least one change.")
+        # Strengths have to be earned by something the candidate said. With
+        # nothing assessed there is nothing to praise, and requiring an entry
+        # anyway pushes the model into inventing one.
+        if self.signals and not strengths:
+            raise InterviewError(
+                "strengths cannot be empty once something has been assessed."
+            )
+        if not self.signals and strengths:
+            raise InterviewError(
+                "Nothing was assessed, so there is no evidence for strengths. "
+                "Pass an empty list."
+            )
 
         self.debrief = {
             "headline": headline.strip(),
@@ -454,7 +468,7 @@ TOOLS = [
                     "items": {"type": "string"},
                     "description": (
                         "Two or three things the candidate did well, each tied to something "
-                        "they actually said."
+                        "they actually said. Pass an empty list if nothing was assessed."
                     ),
                 },
                 "improvements": {
