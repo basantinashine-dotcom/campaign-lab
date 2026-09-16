@@ -66,7 +66,7 @@ def load_context(directory=CONTEXT_DIR):
     return files
 
 
-def build_system(state, context=()):
+def build_system(state, context=(), history_summary=""):
     prompt, level = state.prompt, state.level
     stage_lines = "\n".join(
         "  %d. %s -- %s (budget: %d candidate message%s)"
@@ -78,6 +78,7 @@ def build_system(state, context=()):
         reference = "\n\n".join("--- %s ---\n%s" % (name, text) for name, text in context)
     else:
         reference = "(none provided)"
+    history = history_summary.strip() or "No previous interviews."
 
     return """You are running a practice product sense interview. The person you are \
 talking to is rehearsing, not being hired.
@@ -132,6 +133,13 @@ Warm, direct, unhurried. Press once on a vague answer -- "which one?", "why that
 -- then take what you get and move on. Not sycophantic, not hostile. A short question is
 usually better than a long one.
 
+CANDIDATE HISTORY -- scores from this candidate's earlier practice interviews.
+Use it for two things only: press a little harder in stages where they have been weak,
+and aim the debrief's next_prompt at their weakest stage. It must never change a score.
+Score only what they say today; a stage they usually struggle with and nail today is a 4.
+Do not mention their history during the interview.
+%s
+
 REFERENCE MATERIAL -- guidance on what strong answers look like at each stage. Use it to
 judge and to choose what to probe. Never quote it, name it, or coach from it during the
 interview.
@@ -143,6 +151,7 @@ interview.
         level.bar,
         stage_lines,
         rubric_lines,
+        history,
         reference,
     )
 
@@ -153,7 +162,14 @@ class LiveSession:
     mode = "live"
 
     def __init__(
-        self, state, client, model=MODEL, effort="high", max_turns=MAX_TURNS, context=()
+        self,
+        state,
+        client,
+        model=MODEL,
+        effort="high",
+        max_turns=MAX_TURNS,
+        context=(),
+        history_summary="",
     ):
         self.state = state
         self.client = client
@@ -161,13 +177,14 @@ class LiveSession:
         self.effort = effort
         self.max_turns = max_turns
         self.context = list(context)
+        self.history_summary = history_summary
         # A list block so it can carry cache_control. The instructions are
         # identical on every turn of an interview, so after the first turn they
         # are read from the cache instead of being paid for in full again.
         self.system = [
             {
                 "type": "text",
-                "text": build_system(state, self.context),
+                "text": build_system(state, self.context, history_summary),
                 "cache_control": {"type": "ephemeral"},
             }
         ]

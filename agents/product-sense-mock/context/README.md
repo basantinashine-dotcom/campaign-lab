@@ -5,6 +5,7 @@ Markdown files here are added to the interviewer's instructions at the start of 
 - Every `.md` file in this folder and its subfolders is loaded in alphabetical order by path. README files are skipped.
 - The web server reads the folder fresh for each interview, so edits take effect without a restart. The setup page lists the files it found.
 - An empty folder is fine. The interviewer then judges from the built-in rubric in `interview.py`.
+- Interview results are saved as JSON in `private/progress/`. Only `.md` files are loaded, so results never become reference material; the interviewer gets a short summary of them instead.
 
 ## Public and private context
 

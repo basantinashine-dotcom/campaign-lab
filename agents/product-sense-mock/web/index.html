@@ -12,7 +12,10 @@
   <header class="topbar">
     <span class="brand"><span class="mark" aria-hidden="true">PS</span>Product Sense <span>Mock</span></span>
     <span class="lab-tag">LEARN BY BUILDING</span>
-    <button class="text-button" id="restart" type="button" hidden>New interview</button>
+    <nav class="topnav">
+      <button class="text-button" id="show-progress" type="button">Progress</button>
+      <button class="text-button" id="restart" type="button" hidden>New interview</button>
+    </nav>
   </header>
 
   <noscript><p class="noscript">This page needs JavaScript to run the interview.</p></noscript>
@@ -51,6 +54,13 @@
 
         <button class="primary wide-button" type="submit" id="start">Start interview</button>
         <p id="setup-error" class="error" role="alert" hidden></p>
+
+        <section class="panel sync-panel" id="sync-panel" aria-live="polite">
+          <h2>Private context</h2>
+          <p class="subtle" id="sync-text">Checking…</p>
+          <p class="subtle sync-detail" id="sync-detail" hidden></p>
+          <button class="secondary" type="button" id="sync-save" hidden>Save to GitHub</button>
+        </section>
       </div>
     </form>
   </main>
@@ -109,6 +119,7 @@
         <small id="debrief-score-note"></small>
       </div>
       <div class="debrief-actions">
+        <p class="save-status" id="save-status" aria-live="polite" hidden></p>
         <a class="secondary button-link" id="download" href="#">Download debrief (.md)</a>
         <button class="primary" type="button" id="again">Start another interview</button>
       </div>
@@ -144,6 +155,36 @@
     </details>
 
     <p class="subtle footnote">Scores are one interviewer's read of one practice conversation. They are not a hiring signal.</p>
+  </main>
+
+  <!-- Progress -->
+  <main id="progress-screen" class="screen" hidden>
+    <p class="kicker"><span>PROGRESS</span> Your Claude interviews</p>
+    <h1 id="progress-headline">How you're trending</h1>
+    <p class="intro" id="progress-intro"></p>
+
+    <div id="progress-empty" class="panel empty-panel" hidden>
+      <h2>No interviews saved yet</h2>
+      <p class="subtle">Finish an interview with Claude and your stage scores appear here. Offline runs aren't tracked, because their keyword scores aren't real feedback.</p>
+    </div>
+
+    <div id="progress-body" hidden>
+      <div class="panel table-panel">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Stage</th><th>Average</th><th>Recent scores, oldest to newest</th></tr></thead>
+            <tbody id="progress-stages"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <section class="panel">
+        <h2>Past interviews</h2>
+        <ul id="progress-history" class="history-list"></ul>
+      </section>
+    </div>
+
+    <p class="subtle footnote">Saved in context/private/progress on this computer, and backed up to your private GitHub repository when one is set up.</p>
   </main>
 </body>
 </html>
