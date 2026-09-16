@@ -72,7 +72,8 @@ class WebServerTests(unittest.TestCase):
     def test_config_lists_prompts_without_exposing_any_key(self):
         response, data = self.request("GET", "/api/config")
         self.assertEqual(response.status, 200)
-        self.assertEqual(len(data["prompts"]), 5)
+        self.assertEqual(len(data["prompts"]), 4)
+        self.assertEqual(data["default_prompt"], "grocery-reorder")
         self.assertNotIn("sk-ant", json.dumps(data))
 
     # --- protections -----------------------------------------------------------
