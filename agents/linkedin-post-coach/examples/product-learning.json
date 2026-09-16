@@ -1,0 +1,8 @@
+{
+  "draft": "I built a habit tracker this weekend. I thought the hard part would be the streak counter, but it was explaining what happens when someone misses a day.\n\nMy first version reset the streak to zero. A friend tried it and said that made them want to stop using it. I changed the screen to show completed days alongside the streak.\n\nThis proves everyone prefers encouragement over accountability.\n\nWhat do you think?",
+  "audience": "Product managers learning to build small apps",
+  "goal": "Share a product lesson and invite other people's experiences",
+  "tone": "Conversational, practical, and candid",
+  "preserve": "Keep the first-person story and the detail about resetting the streak. Do not invent user research.",
+  "mode": "feedback"
+}
