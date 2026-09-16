@@ -63,6 +63,16 @@ Markdown files in [`context/`](context/) are added to the interviewer's instruct
 
 Material that isn't yours to publish, such as course notes, blog excerpts, or an employer's interview guide, goes in `context/private/`. This public repository ignores that folder; keep it as a separate private repository. The setup page lists the files it found, and the web server rereads the folder for each interview, so edits apply without a restart. See [context/README.md](context/README.md).
 
+## Progress
+
+After each finished interview with Claude, the stage scores are saved as a small JSON file in `context/private/progress/`, and the private context folder is uploaded to GitHub in the background. The debrief says whether the upload worked. Offline runs are never saved, and neither is an interview that ended before anything was scored.
+
+- **Progress** in the top bar shows your average per stage, your recent scores oldest to newest, your weakest stage, and every past interview.
+- **The interviewer sees a short summary** of your history at the start of each interview. It is allowed to press a little harder where you have been weak and to aim its suggested next question there, and it is told that history must never change a score.
+- **Private context** on the start page shows whether you have unsaved changes, such as a reference file you edited, and has a **Save to GitHub** button for them.
+
+Uploading runs `git add`, `git commit`, and `git push` inside `context/private`, using the GitHub login already on your computer. It only does so if that folder is its own Git repository. Otherwise, because the folder sits inside this public repository, Git would find the public one instead. Without a private repository, results are still saved on your computer, and the page says so.
+
 ## Why this is an agent and not a prompt
 
 The interviewer faces a real decision on every turn: *has this stage been covered well enough to move on, or does it need another probe?* That decision is a tool call against live state, and the result changes what it does next.
@@ -84,6 +94,8 @@ The loop in `session.py` is written by hand rather than handed to the SDK's tool
 | `interview.py` | Stages, rubric, levels, prompts and company briefs, probe budget, tool schemas, scorecard, Markdown debrief | Nothing else |
 | `session.py` | The live agent loop: build the instructions, load reference context, call Claude, run its tool calls, stop when it needs you | `interview.py`, and a client passed in |
 | `offline.py` | The scripted interviewer, with the same shape and events as a live session | `interview.py` |
+| `progress.py` | Saving finished interviews, reading history, and summarizing it for you and the interviewer | `interview.py` |
+| `sync.py` | Backing up `context/private` to its own GitHub repository, refusing if it isn't one | Git |
 | `product_sense_mock.py` | Terminal front end | Sessions |
 | `web.py` + `web/` | Browser front end: a standard-library server and a plain HTML/JS/CSS page | Sessions |
 
@@ -137,15 +149,17 @@ Abridged from a real `--offline` run:
 python -m unittest discover -s tests -t .
 ```
 
-92 tests, no API key and no network needed. From the repository root, `npm run test:product-sense` runs the same thing.
+120 tests, no API key and no network needed. From the repository root, `npm run test:product-sense` runs the same thing.
 
 - `test_interview.py` covers the framework's stages and dimensions, levels, company briefs, the probe budget, stage transitions, scorecard arithmetic, and the offline heuristic.
 - `test_session.py` drives the live loop with a fake client: tool results matched back by id, rejected tool input returned as an error, several tool calls in one turn, quitting, refusals, the turn ceiling, and recovering from an API error without resending your answer. It also checks what goes into the instructions (brief, level bar, reference files, cache marker) and how reference files are loaded.
-- `test_web.py` runs the server on a random port and completes interviews over real HTTP, including levels, reference context reaching a live session, and the Host and JSON checks below.
+- `test_web.py` runs the server on a random port and completes interviews over real HTTP, including levels, reference context reaching a live session, results being saved and uploaded exactly once, offline runs not being saved, history reaching the next interview, and the Host and JSON checks below.
+- `test_progress.py` covers what gets saved, reading history back, averages and the weakest stage, and the instruction that history never changes a score.
+- `test_sync.py` runs real `git` against throwaway repositories, with a local bare repository standing in for GitHub: saving and pushing, nothing to save, pushing earlier unpushed commits, a failed push, and refusing to commit when the folder is only a subfolder of another repository. It is skipped if Git isn't installed.
 
 ## Required services
 
-Live interviews call the Anthropic Messages API and need `ANTHROPIC_API_KEY` in the terminal that starts the program. Nothing is written anywhere except the file you name with `--save` or the debrief you download. The agent takes no action outside the conversation: it has no network access of its own, no filesystem tools, and nothing to authorize. Keep your key out of Git; this repository's `.gitignore` already covers `.env*`.
+Live interviews call the Anthropic Messages API and need `ANTHROPIC_API_KEY` in the terminal that starts the program. Uploading progress needs Git and a GitHub login on your computer, plus `context/private` set up as a private repository. The program writes only the files you name with `--save`, the debriefs you download, and the progress files in `context/private/progress/`, and it pushes only to the private repository in `context/private`. The interviewer itself takes no action outside the conversation: it has no network access of its own, no filesystem tools, and nothing to authorize. Keep your key out of Git; this repository's `.gitignore` already covers `.env*`.
 
 The web server holds the key, the interview state, and the reference context; the page only ever receives questions, events, the debrief, and the names of the reference files. Because the server can spend your credits, it listens on `127.0.0.1` only, so other machines on your network cannot reach it, and it rejects requests with a foreign Host header or a non-JSON body, so another website open in your browser cannot drive it.
 
@@ -161,7 +175,7 @@ Model defaults to `claude-opus-5` with adaptive thinking. A full interview is ro
 
 **The framework is a teaching structure.** Real interviews rarely hand you the stages one at a time. Here the interviewer leads you through each stage, which is good for learning the structure but easier than having to drive it yourself.
 
-**No follow-through yet.** The interview ends at the debrief. It does not remember previous sessions or track whether you improved.
+**Progress is a trend, not a measurement.** Averages across different questions, levels, and interviewer moods are rough. A rise from 2.3 to 2.7 over three interviews is encouraging, not proof. Upload failures are reported but not retried automatically; the Save to GitHub button retries.
 
 **Live interviews are only partly proven.** The API accepts the tool definitions and settings, and a real `end_interview` call has completed. A full live interview, with Claude answering clarifying questions, scoring stages, and moving through them, has not yet been run, and the web page has only been exercised in offline mode. The loop is tested with a fake client, but a fake cannot show whether Claude follows the probe budget or uses the brief and reference files well.
 

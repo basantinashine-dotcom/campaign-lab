@@ -22,7 +22,9 @@ from datetime import date
 
 from interview import DEFAULT_LEVEL, DEFAULT_PROMPT, LEVELS, PROMPTS, STAGES, render_debrief
 from offline import OfflineSession, new_state
+from progress import commit_message, load_history, save_result, summary_for_interviewer
 from session import MODEL, LiveSession, explain_api_error, load_context
+from sync import PrivateRepo
 
 HELP = """
 Commands
@@ -170,18 +172,29 @@ def main(argv=None):
             "Reference files: %s. Type /help for commands."
             % (", ".join(name for name, _ in context) if context else "none")
         )
+        history = load_history()
+        if history:
+            print("Previous interviews on record: %d." % len(history))
         session = LiveSession(
             state,
             anthropic.Anthropic(),
             model=args.model,
             effort=args.effort,
             context=context,
+            history_summary=summary_for_interviewer(history),
         )
         drive(session, args.trace, anthropic=anthropic, model=args.model)
 
     report = render_debrief(state, when=date.today().isoformat())
     print("\n" + "-" * 68 + "\n")
     print(report)
+
+    if not args.offline:
+        path = save_result(session, model=args.model)
+        if path is not None:
+            print("\nResult saved to context/private/progress/%s" % path.name)
+            print("Uploading to GitHub...")
+            print(PrivateRepo().save(commit_message(path))["detail"])
 
     if args.save:
         with open(args.save, "w", encoding="utf-8") as handle:

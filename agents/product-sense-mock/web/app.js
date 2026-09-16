@@ -53,10 +53,11 @@ function el(tag, className, text) {
 }
 
 function show(screen) {
-  for (const id of ['setup-screen', 'interview-screen', 'debrief-screen']) {
+  for (const id of ['setup-screen', 'interview-screen', 'debrief-screen', 'progress-screen']) {
     $(`#${id}`).hidden = id !== screen;
   }
   $('#restart').hidden = screen === 'setup-screen';
+  $('#show-progress').classList.toggle('current', screen === 'progress-screen');
   window.scrollTo({ top: 0 });
 }
 
@@ -177,6 +178,8 @@ async function startInterview(event) {
 function resetInterview(question, mode, levelLabel) {
   app.id = null;
   app.session = null;
+  app.progress = undefined;
+  setSaveStatus('');
   $('#question').textContent = question;
   $('#transcript').replaceChildren();
   $('#answer').value = '';
@@ -243,6 +246,7 @@ function addEvent(event, target = $('#transcript')) {
 function apply(data) {
   for (const event of data.events) addEvent(event);
   app.session = data.session;
+  if (data.progress !== undefined) app.progress = data.progress;
   setBusy(false);
 
   const { stages, stage_index: index, done } = app.session;
@@ -406,6 +410,7 @@ function renderDebrief() {
   final.replaceChildren(...Array.from($('#transcript').children).map((node) => node.cloneNode(true)));
 
   show('debrief-screen');
+  reportSave();
 }
 
 function fillList(selector, items) {
@@ -421,6 +426,185 @@ function endedReasonText(reason) {
   }[reason] || 'The interview ended.';
 }
 
+// --- saving to GitHub --------------------------------------------------------
+
+async function refreshSync() {
+  let status;
+  try {
+    status = await api('/api/context/status');
+  } catch {
+    $('#sync-panel').hidden = true;
+    return null;
+  }
+  renderSync(status);
+  return status;
+}
+
+function renderSync(status) {
+  const panel = $('#sync-panel');
+  const text = $('#sync-text');
+  const detail = $('#sync-detail');
+  const button = $('#sync-save');
+  panel.hidden = false;
+  panel.classList.remove('ok', 'warn');
+  detail.hidden = true;
+  button.hidden = true;
+
+  if (!status.is_repo) {
+    panel.classList.add('warn');
+    text.textContent = 'Not backed up. context/private isn’t linked to a private GitHub repository, so results are saved on this computer only.';
+    return;
+  }
+  if (status.pending) {
+    text.textContent = 'Uploading to GitHub…';
+    return;
+  }
+  if (status.changes) {
+    text.textContent = `${status.changes} unsaved change${status.changes === 1 ? '' : 's'} in your private context.`;
+    button.hidden = false;
+    button.disabled = false;
+  } else {
+    panel.classList.add('ok');
+    text.textContent = 'Backed up to GitHub.';
+  }
+  if (status.last && status.last.status === 'failed') {
+    panel.classList.add('warn');
+    detail.textContent = `Last upload failed: ${status.last.detail}${status.last.git ? ` (${status.last.git})` : ''}`;
+    detail.hidden = false;
+    button.hidden = false;
+  }
+}
+
+async function saveContext() {
+  const button = $('#sync-save');
+  button.disabled = true;
+  $('#sync-text').textContent = 'Uploading to GitHub…';
+  try {
+    const data = await api('/api/context/save', {});
+    renderSync(data.status);
+    if (data.result.status !== 'saved' && data.result.status !== 'nothing') {
+      $('#sync-detail').textContent = data.result.detail;
+      $('#sync-detail').hidden = false;
+    }
+  } catch (error) {
+    $('#sync-detail').textContent = error.message;
+    $('#sync-detail').hidden = false;
+    button.disabled = false;
+  }
+}
+
+function setSaveStatus(message, tone) {
+  const node = $('#save-status');
+  node.textContent = message;
+  node.className = `save-status${tone ? ` ${tone}` : ''}`;
+  node.hidden = !message;
+}
+
+// After a finished Claude interview the server saves the result and starts an
+// upload in the background. Poll until it finishes so the debrief can say how
+// it went.
+async function reportSave() {
+  const progress = app.progress;
+  if (app.session.mode !== 'live') {
+    setSaveStatus('Offline runs aren’t saved to your progress.');
+    return;
+  }
+  if (!progress || !progress.saved) {
+    setSaveStatus('Not saved to your progress: nothing was scored.');
+    return;
+  }
+  if (!progress.uploading) {
+    setSaveStatus('Result saved on this computer. No private GitHub repository is linked, so it wasn’t uploaded.', 'warn');
+    return;
+  }
+  setSaveStatus('Result saved. Uploading to GitHub…');
+  const sessionId = app.id;
+  for (let attempt = 0; attempt < 45; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    if (app.id !== sessionId) return;
+    let status;
+    try {
+      status = await api('/api/context/status');
+    } catch {
+      continue;
+    }
+    if (status.pending) continue;
+    const last = status.last || {};
+    if (last.status === 'saved' || last.status === 'nothing') {
+      setSaveStatus('Result saved and backed up to GitHub.', 'ok');
+    } else {
+      setSaveStatus(`Result saved on this computer, but the upload failed: ${last.detail || 'unknown error'}`, 'warn');
+    }
+    return;
+  }
+  setSaveStatus('Result saved. The upload is taking a while; check the Private context box on the start page.', 'warn');
+}
+
+// --- progress ---------------------------------------------------------------
+
+async function showProgress() {
+  if (app.busy) return;
+  if (app.session && !app.session.done && !window.confirm('Leave this interview? It will not be saved.')) return;
+  app.id = null;
+  app.session = null;
+  show('progress-screen');
+  $('#progress-intro').textContent = 'Loading…';
+  $('#progress-empty').hidden = true;
+  $('#progress-body').hidden = true;
+
+  let data;
+  try {
+    data = await api('/api/progress');
+  } catch (error) {
+    $('#progress-intro').textContent = error.message;
+    return;
+  }
+
+  if (!data.interviews) {
+    $('#progress-intro').textContent = '';
+    $('#progress-empty').hidden = false;
+    return;
+  }
+
+  $('#progress-intro').textContent = data.weakest
+    ? `${data.interviews} Claude interview${data.interviews === 1 ? '' : 's'} so far. Your weakest stage is ${data.weakest}; the interviewer presses a little harder there, without letting it change your score.`
+    : `${data.interviews} Claude interview${data.interviews === 1 ? '' : 's'} so far.`;
+
+  const stages = $('#progress-stages');
+  stages.replaceChildren();
+  for (const stage of data.stages) {
+    const tr = el('tr');
+    const average = el('td');
+    average.append(el(
+      'span',
+      `stage-average${stage.label === data.weakest ? ' weakest' : ''}`,
+      stage.average === null ? '—' : stage.average.toFixed(1),
+    ));
+    const recent = el('td');
+    const chips = el('div', 'chip-row');
+    if (stage.recent.length) {
+      for (const score of stage.recent) chips.append(el('span', `score-chip score-${score}`, String(score)));
+    } else {
+      chips.append(el('span', 'score-chip score-none', 'not assessed yet'));
+    }
+    recent.append(chips);
+    tr.append(el('td', null, stage.label), average, recent);
+    stages.append(tr);
+  }
+
+  const history = $('#progress-history');
+  history.replaceChildren();
+  for (const item of data.history) {
+    const li = el('li');
+    const when = item.finished_at ? new Date(item.finished_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+    const what = el('span', 'what', item.question);
+    what.append(el('small', null, [item.level, item.headline].filter(Boolean).join(' · ')));
+    li.append(el('span', 'when', when), what, el('span', 'total', `${item.total} / ${item.possible}`));
+    history.append(li);
+  }
+  $('#progress-body').hidden = false;
+}
+
 // --- wiring -----------------------------------------------------------------
 
 function startOver() {
@@ -429,6 +613,7 @@ function startOver() {
   app.id = null;
   app.session = null;
   show('setup-screen');
+  refreshSync();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -438,6 +623,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#retry').addEventListener('click', retry);
   $('#restart').addEventListener('click', startOver);
   $('#again').addEventListener('click', startOver);
+  $('#show-progress').addEventListener('click', showProgress);
+  $('#sync-save').addEventListener('click', saveContext);
 
   $('#answer').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -455,4 +642,5 @@ document.addEventListener('DOMContentLoaded', () => {
   applyNotes();
 
   init();
+  refreshSync();
 });

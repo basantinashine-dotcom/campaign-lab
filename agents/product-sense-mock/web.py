@@ -29,6 +29,14 @@ from pathlib import Path
 
 from interview import DEFAULT_LEVEL, DEFAULT_PROMPT, LEVELS, PROMPTS, STAGES, render_debrief
 from offline import OfflineError, OfflineSession, new_state
+from progress import (
+    PROGRESS_DIR,
+    commit_message,
+    load_history,
+    overview,
+    save_result,
+    summary_for_interviewer,
+)
 from session import (
     CONTEXT_DIR,
     MODEL,
@@ -38,6 +46,7 @@ from session import (
     load_context,
     snapshot,
 )
+from sync import PrivateRepo
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
 STATIC = {
@@ -55,13 +64,22 @@ class InterviewServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(
-        self, address, model=MODEL, effort="high", client_factory=None, context_dir=CONTEXT_DIR
+        self,
+        address,
+        model=MODEL,
+        effort="high",
+        client_factory=None,
+        context_dir=CONTEXT_DIR,
+        progress_dir=PROGRESS_DIR,
+        private_repo=None,
     ):
         super().__init__(address, InterviewHandler)
         self.model = model
         self.effort = effort
         self.client_factory = client_factory
         self.context_dir = context_dir
+        self.progress_dir = progress_dir
+        self.private_repo = private_repo or PrivateRepo()
         self.sessions = {}
         self.locks = {}
         self.registry_lock = threading.Lock()
@@ -189,6 +207,12 @@ class InterviewHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if path == "/api/progress":
+            self._json(HTTPStatus.OK, overview(load_history(self.server.progress_dir)))
+            return
+        if path == "/api/context/status":
+            self._json(HTTPStatus.OK, self.server.private_repo.status())
+            return
         match = SESSION_PATH.match(path)
         if match and match.group(2) == "debrief.md":
             session = self._session(match.group(1))
@@ -215,6 +239,11 @@ class InterviewHandler(BaseHTTPRequestHandler):
             self._create(body)
             return
 
+        if path == "/api/context/save":
+            result = self.server.private_repo.save("Update private context")
+            self._json(HTTPStatus.OK, {"result": result, "status": self.server.private_repo.status()})
+            return
+
         match = SESSION_PATH.match(path)
         if not match or match.group(2) in (None, "debrief.md"):
             raise HttpError(HTTPStatus.NOT_FOUND, "Not found.")
@@ -231,9 +260,13 @@ class InterviewHandler(BaseHTTPRequestHandler):
                 events = self._run(session, session.quit)
             else:
                 events = self._run(session, session.resume)
+            saved = self._record_if_finished(session)
         finally:
             lock.release()
-        self._json(HTTPStatus.OK, {"id": session_id, "events": events, "session": snapshot(session)})
+        self._json(
+            HTTPStatus.OK,
+            {"id": session_id, "events": events, "session": snapshot(session), "progress": saved},
+        )
 
     def _create(self, body):
         prompt_key = body.get("prompt", DEFAULT_PROMPT)
@@ -256,13 +289,15 @@ class InterviewHandler(BaseHTTPRequestHandler):
                     "The anthropic package is not installed. Run "
                     "pip install -r requirements.txt, or use offline mode.",
                 )
-            # Read per interview, so edits to context files apply without a restart.
+            # Read per interview, so edits to context files and new results apply
+            # without a restart.
             session = LiveSession(
                 state,
                 client,
                 model=self.server.model,
                 effort=self.server.effort,
                 context=load_context(self.server.context_dir),
+                history_summary=summary_for_interviewer(load_history(self.server.progress_dir)),
             )
             session.anthropic = anthropic
         else:
@@ -287,6 +322,23 @@ class InterviewHandler(BaseHTTPRequestHandler):
         )
 
     # --- helpers -----------------------------------------------------------
+
+    def _record_if_finished(self, session):
+        """Save a finished live interview once, then back it up to GitHub in the background.
+
+        Returns what the page needs to show: whether a result was saved, and
+        whether an upload was started. Offline interviews are never saved.
+        """
+        if getattr(session, "progress_recorded", False) or not session.done:
+            return None
+        session.progress_recorded = True
+        path = save_result(session, self.server.progress_dir, model=self.server.model)
+        if path is None:
+            return {"saved": False}
+        uploading = self.server.private_repo.is_repo()
+        if uploading:
+            self.server.private_repo.save_in_background(commit_message(path))
+        return {"saved": True, "file": path.name, "uploading": uploading}
 
     def _session(self, session_id):
         session = self.server.sessions.get(session_id)
