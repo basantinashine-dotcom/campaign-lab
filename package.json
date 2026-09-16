@@ -1,0 +1,1 @@
+{"name":"campaign-lab","version":"0.1.0","private":true,"type":"module","description":"An Instagram campaign learning simulator","scripts":{"test":"node --test tests/*.test.mjs","check":"node --check dist/app.js && node --check dist/engine.mjs"}}
