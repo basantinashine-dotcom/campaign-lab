@@ -19,7 +19,15 @@ both modes identically.
 
 import re
 
-from interview import DEFAULT_LEVEL, LEVELS, MAX_SCORE, PROMPTS, InterviewState, dimension_label
+from interview import (
+    DEFAULT_LEVEL,
+    LEVELS,
+    MAX_SCORE,
+    PROMPTS,
+    InterviewState,
+    dimension_label,
+    prompts_for,
+)
 
 # Two questions per stage: the opening, and one follow-up used when the opening
 # answer scores below "solid" and the probe budget allows. Clarify always gets
@@ -54,6 +62,26 @@ STAGE_QUESTIONS = {
         "How would you know it worked, and what metric would tell you it was quietly "
         "doing harm?",
     ),
+    # AI PM
+    "scope": (
+        "Here's the prompt. Before anything else, scope it out loud: what is the user "
+        "trying to do, what does done look like, and what are you not solving?",
+        "What are you deliberately leaving out, and why that boundary?",
+    ),
+    "hypothesis": (
+        "What's your hypothesis, and what one metric would tell you it worked?",
+        "What guardrail metrics would you watch, and what would make you stop the test?",
+    ),
+    "prompt_demo": (
+        "Write the small prompt you'd use for the core AI behaviour, and narrate why it's "
+        "written that way. Offline mode can't run it, so also say what output you'd expect.",
+        "What would you change in the prompt next, and why?",
+    ),
+    "risk": (
+        "What would you not let the model act on alone?",
+        "How would you build trust over time, and which stakeholders would you need to "
+        "bring along?",
+    ),
 }
 
 # Words that suggest an answer is at least reaching for the dimension.
@@ -81,6 +109,23 @@ KEYWORDS = {
     "mvp": (
         "mvp", "first version", "cut", "waits", "later", "launch", "metric", "measure",
         "counter", "guardrail",
+    ),
+    # AI PM
+    "scope": (
+        "trying to", "done", "scope", "not solving", "out of scope", "goal", "user",
+        "success looks", "boundary", "leave out",
+    ),
+    "hypothesis_metrics": (
+        "hypothes", "assum", "metric", "guardrail", "stop", "success", "measure", "rate",
+        "baseline", "%",
+    ),
+    "prompt_demo": (
+        "prompt", "you are", "output", "instruction", "example", "format", "narrat",
+        "change", "iterate", "next version",
+    ),
+    "risk_judgment": (
+        "human", "review", "approv", "trust", "risk", "stakeholder", "legal", "tradeoff",
+        "escalat", "never",
     ),
 }
 
@@ -275,8 +320,8 @@ class OfflineSession:
             improvements = ["Run the live agent; this heuristic has nothing further to say."]
 
         weakest = state.weakest()
-        alternatives = [k for k in PROMPTS if k != state.prompt.key]
-        suggestion = PROMPTS[alternatives[0]].question if alternatives else state.prompt.question
+        alternatives = [p for p in prompts_for(state.prompt.track) if p.key != state.prompt.key]
+        suggestion = alternatives[0].question if alternatives else state.prompt.question
         if weakest and state.signals[weakest].score == MAX_SCORE:
             next_prompt = (
                 "Everything assessed scored at the top of this heuristic, which says more "

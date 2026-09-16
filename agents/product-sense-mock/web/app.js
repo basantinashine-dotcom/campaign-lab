@@ -61,16 +61,30 @@ function show(screen) {
   window.scrollTo({ top: 0 });
 }
 
-// Stage names come from the server, so the page never goes out of step with
-// interview.py. A dimension is shown by the name of the stage that scores it.
+// Interview types and stage names come from the server, so the page never goes
+// out of step with interview.py. A dimension is shown by the name of the stage
+// that scores it.
+function trackOf(key) {
+  return app.config.tracks.find((t) => t.key === key) || app.config.tracks[0];
+}
+
+function allStages() {
+  return app.config.tracks.flatMap((t) => t.stages);
+}
+
 function stageLabel(key) {
-  const stage = app.config.stages.find((s) => s.key === key);
+  const stage = allStages().find((s) => s.key === key);
   return stage ? stage.label : key;
 }
 
 function dimensionLabel(dimension) {
-  const stage = app.config.stages.find((s) => s.dimension === dimension);
+  const stage = allStages().find((s) => s.dimension === dimension);
   return stage ? stage.label : dimension.replace(/_/g, ' ');
+}
+
+function selectedTrack() {
+  const input = document.querySelector('input[name=track]:checked');
+  return trackOf(input ? input.value : app.config.default_track);
 }
 
 function radio(name, value, checked, title, detail) {
@@ -88,8 +102,19 @@ function radio(name, value, checked, title, detail) {
 }
 
 const LEVEL_DETAIL = {
-  pm: 'Mission and a north star are enough for Strategy.',
-  senior: 'Strategy also needs why this company, the competitive gap, and the longer arc.',
+  'product-sense': {
+    pm: 'Mission and a north star are enough for Strategy.',
+    senior: 'Strategy also needs why this company, the competitive gap, and the longer arc.',
+  },
+  'ai-pm': {
+    pm: 'A clear scope, one metric with a guardrail, a working prompt, and concrete limits.',
+    senior: 'Also ownership: who approves what, how trust is earned, and how stakeholders align.',
+  },
+};
+
+const TRACK_DETAIL = {
+  'product-sense': 'Clarify, strategy, users, pain points, solutions, and an MVP.',
+  'ai-pm': 'Scope, metrics, a live prompt demo, and risk and judgment.',
 };
 
 // --- setup ------------------------------------------------------------------
@@ -103,39 +128,65 @@ async function init() {
     return;
   }
 
-  const choices = $('#prompt-choices');
-  for (const prompt of app.config.prompts) {
-    choices.append(radio(
-      'prompt', prompt.key, prompt.key === app.config.default_prompt,
-      prompt.question, prompt.key.replace(/-/g, ' '),
-    ));
+  const tracks = $('#track-choices');
+  for (const track of app.config.tracks) {
+    const choice = radio('track', track.key, track.key === app.config.default_track, track.label);
+    choice.querySelector('span').append(el('small', null, TRACK_DETAIL[track.key] || ''));
+    choice.querySelector('input').addEventListener('change', renderTrackChoices);
+    tracks.append(choice);
   }
-
-  const levels = $('#level-choices');
-  for (const level of app.config.levels) {
-    const choice = radio('level', level.key, level.key === app.config.default_level, level.label);
-    const detail = LEVEL_DETAIL[level.key];
-    if (detail) choice.querySelector('span').append(el('small', null, detail));
-    levels.append(choice);
-  }
-
-  const files = app.config.context_files;
-  $('#context-note').textContent = files.length
-    ? `Claude will also judge against your reference files: ${files.join(', ')}.`
-    : 'No reference files found, so Claude judges from the built-in rubric only.';
-
-  const updateWarning = () => {
-    const live = document.querySelector('input[name=mode]:checked').value === 'live';
-    $('#live-warning').hidden = !live || app.config.live_available;
-    $('#context-note').hidden = !live;
-  };
   for (const input of document.querySelectorAll('input[name=mode]')) {
-    input.addEventListener('change', updateWarning);
+    input.addEventListener('change', updateSetupNotes);
   }
   if (!app.config.live_available) {
     document.querySelector('input[name=mode][value=offline]').checked = true;
   }
-  updateWarning();
+  renderTrackChoices();
+}
+
+// Questions, level descriptions, and reference files all depend on the type.
+function renderTrackChoices() {
+  const track = selectedTrack();
+  $('#track-stages').textContent = `Stages: ${track.stages.map((s) => s.label).join(' · ')}`;
+
+  const choices = $('#prompt-choices');
+  choices.replaceChildren();
+  for (const prompt of app.config.prompts.filter((p) => p.track === track.key)) {
+    choices.append(radio(
+      'prompt', prompt.key, prompt.key === track.default_prompt,
+      prompt.question, prompt.key.replace(/-/g, ' '),
+    ));
+  }
+
+  const current = document.querySelector('input[name=level]:checked');
+  const levelKey = current ? current.value : app.config.default_level;
+  const levels = $('#level-choices');
+  levels.replaceChildren();
+  for (const level of app.config.levels) {
+    const choice = radio('level', level.key, level.key === levelKey, level.label);
+    const detail = (LEVEL_DETAIL[track.key] || {})[level.key];
+    if (detail) choice.querySelector('span').append(el('small', null, detail));
+    levels.append(choice);
+  }
+
+  updateSetupNotes();
+}
+
+function updateSetupNotes() {
+  const track = selectedTrack();
+  const live = document.querySelector('input[name=mode]:checked').value === 'live';
+  const files = track.context_files;
+  const note = files.length
+    ? `Claude will also judge against your reference files: ${files.join(', ')}.`
+    : 'No reference files found, so Claude judges from the built-in rubric only.';
+  const runner = track.has_runner
+    ? live
+      ? ' You’ll run your own prompt in the Prompt demo stage.'
+      : ' Offline mode can’t run prompts, so the Prompt demo stage asks you to describe the output instead.'
+    : '';
+  $('#context-note').textContent = live ? note + runner : runner.trim();
+  $('#context-note').hidden = !(live || runner);
+  $('#live-warning').hidden = !live || app.config.live_available;
 }
 
 function showSetupError(message) {
@@ -156,9 +207,9 @@ async function startInterview(event) {
   }
   showSetupError('');
 
-  const question = app.config.prompts.find((p) => p.key === prompt.value).question;
+  const chosen = app.config.prompts.find((p) => p.key === prompt.value);
   const levelLabel = app.config.levels.find((l) => l.key === level.value).label;
-  resetInterview(question, mode, levelLabel);
+  resetInterview(chosen.question, mode, levelLabel, trackOf(chosen.track));
   show('interview-screen');
   setBusy(true, mode);
 
@@ -175,7 +226,7 @@ async function startInterview(event) {
 
 // --- interview --------------------------------------------------------------
 
-function resetInterview(question, mode, levelLabel) {
+function resetInterview(question, mode, levelLabel, track) {
   app.id = null;
   app.session = null;
   app.progress = undefined;
@@ -183,11 +234,13 @@ function resetInterview(question, mode, levelLabel) {
   $('#question').textContent = question;
   $('#transcript').replaceChildren();
   $('#answer').value = '';
-  $('#mode-label').textContent = mode === 'live'
-    ? `Interviewer: Claude (${app.config.model}). Level: ${levelLabel}.`
-    : `Interviewer: offline script with keyword scoring. Level: ${levelLabel}.`;
+  $('#answer').placeholder = 'Type your answer. Ctrl+Enter to send.';
+  $('#runner-prompt').value = '';
+  $('#runner').hidden = true;
+  const who = mode === 'live' ? `Claude (${app.config.model})` : 'offline script with keyword scoring';
+  $('#mode-label').textContent = `${track.label} interview. Interviewer: ${who}. Level: ${levelLabel}.`;
   hideError();
-  renderStages(app.config.stages, 0);
+  renderStages(track.stages, 0);
 }
 
 function renderStages(stages, index) {
@@ -240,6 +293,61 @@ function addEvent(event, target = $('#transcript')) {
     const raw = el('pre', null, `input  ${JSON.stringify(event.input, null, 2)}\nresult ${JSON.stringify(event.result, null, 2)}`);
     note.append(summary, raw);
     target.append(note);
+  } else if (event.kind === 'prompt_run') {
+    const card = el('article', 'prompt-run');
+    const header = el('header');
+    header.append(el('span', null, 'PROMPT RUN'), el('span', null, `${event.runs_left} run${event.runs_left === 1 ? '' : 's'} left`));
+    const promptPart = el('div', 'part');
+    promptPart.append(el('span', 'part-label', 'YOUR PROMPT'), el('pre', null, event.prompt));
+    const outputPart = el('div', 'part');
+    outputPart.append(el('span', 'part-label', 'OUTPUT'), el('pre', null, event.output));
+    card.append(header, promptPart, outputPart);
+    target.append(card);
+  }
+}
+
+// The runner shows during the stage that has one. Live interviews can run
+// prompts; offline ones show why they can't.
+function updateRunner() {
+  const session = app.session;
+  const panel = $('#runner');
+  if (!session || session.done || !session.runner.stage) {
+    panel.hidden = true;
+    return;
+  }
+  const current = session.stages[session.stage_index];
+  if (!current || current.key !== session.runner.stage) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  const live = session.runner.available;
+  const open = live && session.runner.open;
+  panel.classList.toggle('closed', !open);
+  $('#runner-prompt').disabled = !open || app.busy;
+  $('#runner-run').disabled = !open || app.busy;
+  $('#runner-prompt').maxLength = session.runner.max_chars;
+  const left = session.runner.runs_left;
+  $('#runner-left').textContent = live ? `${left} run${left === 1 ? '' : 's'} left` : 'Offline';
+  if (!live) {
+    $('#runner-note').textContent = 'Offline mode can’t run prompts. Write your prompt in the answer box below, say what output you’d expect, and what you’d change.';
+  } else if (!session.runner.runs_left) {
+    $('#runner-note').textContent = 'You’ve used all your runs. Narrate what you learned and what you’d change next.';
+  } else {
+    $('#runner-note').textContent = 'Write a small prompt and run it. The output appears in the conversation. Then, in the answer box below, narrate what you did, what you see, and what you’d change next.';
+  }
+  $('#runner-count').textContent = `${$('#runner-prompt').value.length} / ${session.runner.max_chars} characters`;
+}
+
+async function runPrompt() {
+  const prompt = $('#runner-prompt').value.trim();
+  if (!prompt || app.busy) return;
+  try {
+    await send('run', { prompt });
+    $('#answer').placeholder = 'Narrate: what did you do, what do you see, and what would you change next?';
+    $('#answer').focus();
+  } catch {
+    // error already shown
   }
 }
 
@@ -251,6 +359,7 @@ function apply(data) {
 
   const { stages, stage_index: index, done } = app.session;
   renderStages(stages, Math.min(index, stages.length));
+  updateRunner();
 
   if (done) {
     renderDebrief();
@@ -271,6 +380,7 @@ function setBusy(busy, mode) {
   $('#send').disabled = waiting;
   $('#quit').disabled = busy || !app.id;
   $('#thinking').hidden = !busy;
+  if (app.session) updateRunner();
 
   clearTimeout(app.thinkingTimer);
   if (busy) {
@@ -362,16 +472,17 @@ async function retry() {
 // --- debrief ----------------------------------------------------------------
 
 function renderDebrief() {
-  const { scorecard, debrief, prompt, mode, level, ended_reason: endedReason } = app.session;
+  const { scorecard, debrief, prompt, mode, level, track, ended_reason: endedReason } = app.session;
+  $('#runner').hidden = true;
 
   const interviewer = mode === 'live' ? 'Interviewed by Claude' : 'Offline script (keyword scoring)';
-  $('#debrief-mode').textContent = `${interviewer} · Level: ${level.label}`;
+  $('#debrief-mode').textContent = `${track.label} · ${interviewer} · Level: ${level.label}`;
   $('#debrief-headline').textContent = (debrief && debrief.headline) || endedReasonText(endedReason);
   $('#debrief-question').textContent = prompt.question;
 
   if (scorecard.assessed) {
     $('#debrief-score').textContent = `${scorecard.total} / ${scorecard.possible}`;
-    $('#debrief-score-note').textContent = `across ${scorecard.assessed} assessed dimension${scorecard.assessed === 1 ? '' : 's'}`;
+    $('#debrief-score-note').textContent = `across ${scorecard.assessed} assessed stage${scorecard.assessed === 1 ? '' : 's'}`;
   } else {
     $('#debrief-score').textContent = '—';
     $('#debrief-score-note').textContent = 'nothing was assessed';
@@ -566,18 +677,33 @@ async function showProgress() {
     return;
   }
 
-  $('#progress-intro').textContent = data.weakest
-    ? `${data.interviews} Claude interview${data.interviews === 1 ? '' : 's'} so far. Your weakest stage is ${data.weakest}; the interviewer presses a little harder there, without letting it change your score.`
-    : `${data.interviews} Claude interview${data.interviews === 1 ? '' : 's'} so far.`;
+  $('#progress-intro').textContent = `${data.interviews} Claude interview${data.interviews === 1 ? '' : 's'} so far. The interviewer presses a little harder on your weakest stage in each interview type, without letting it change your score.`;
 
-  const stages = $('#progress-stages');
-  stages.replaceChildren();
-  for (const stage of data.stages) {
+  const body = $('#progress-body');
+  body.replaceChildren(...data.tracks.map(renderTrackProgress));
+  body.hidden = false;
+}
+
+// One section per interview type: they score different stages, so their
+// numbers are never mixed.
+function renderTrackProgress(section) {
+  const wrap = el('section', 'track-section');
+  wrap.append(el('h2', null, section.label));
+  wrap.append(el(
+    'p',
+    'subtle',
+    section.weakest
+      ? `${section.interviews} interview${section.interviews === 1 ? '' : 's'}. Weakest stage: ${section.weakest}.`
+      : `${section.interviews} interview${section.interviews === 1 ? '' : 's'}.`,
+  ));
+
+  const tbody = el('tbody');
+  for (const stage of section.stages) {
     const tr = el('tr');
     const average = el('td');
     average.append(el(
       'span',
-      `stage-average${stage.label === data.weakest ? ' weakest' : ''}`,
+      `stage-average${stage.label === section.weakest ? ' weakest' : ''}`,
       stage.average === null ? '—' : stage.average.toFixed(1),
     ));
     const recent = el('td');
@@ -589,20 +715,33 @@ async function showProgress() {
     }
     recent.append(chips);
     tr.append(el('td', null, stage.label), average, recent);
-    stages.append(tr);
+    tbody.append(tr);
   }
+  const head = el('thead');
+  const headRow = el('tr');
+  headRow.append(el('th', null, 'Stage'), el('th', null, 'Average'), el('th', null, 'Recent scores, oldest to newest'));
+  head.append(headRow);
+  const table = el('table');
+  table.append(head, tbody);
+  const scroll = el('div', 'table-scroll');
+  scroll.append(table);
+  const tablePanel = el('div', 'panel table-panel');
+  tablePanel.append(scroll);
 
-  const history = $('#progress-history');
-  history.replaceChildren();
-  for (const item of data.history) {
+  const list = el('ul', 'history-list');
+  for (const item of section.history) {
     const li = el('li');
     const when = item.finished_at ? new Date(item.finished_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
     const what = el('span', 'what', item.question);
     what.append(el('small', null, [item.level, item.headline].filter(Boolean).join(' · ')));
     li.append(el('span', 'when', when), what, el('span', 'total', `${item.total} / ${item.possible}`));
-    history.append(li);
+    list.append(li);
   }
-  $('#progress-body').hidden = false;
+  const historyPanel = el('div', 'panel');
+  historyPanel.append(el('h2', null, 'Past interviews'), list);
+
+  wrap.append(tablePanel, historyPanel);
+  return wrap;
 }
 
 // --- wiring -----------------------------------------------------------------
@@ -625,6 +764,16 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#again').addEventListener('click', startOver);
   $('#show-progress').addEventListener('click', showProgress);
   $('#sync-save').addEventListener('click', saveContext);
+  $('#runner-run').addEventListener('click', runPrompt);
+  $('#runner-prompt').addEventListener('input', () => {
+    if (app.session) updateRunner();
+  });
+  $('#runner-prompt').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      runPrompt();
+    }
+  });
 
   $('#answer').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {

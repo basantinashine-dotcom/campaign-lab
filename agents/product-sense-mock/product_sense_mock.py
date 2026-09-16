@@ -20,16 +20,24 @@ import json
 import sys
 from datetime import date
 
-from interview import DEFAULT_LEVEL, DEFAULT_PROMPT, LEVELS, PROMPTS, STAGES, render_debrief
+from interview import DEFAULT_LEVEL, DEFAULT_PROMPT, LEVELS, PROMPTS, TRACKS, render_debrief
 from offline import OfflineSession, new_state
 from progress import commit_message, load_history, save_result, summary_for_interviewer
-from session import MODEL, LiveSession, explain_api_error, load_context
+from session import (
+    MODEL,
+    LiveSession,
+    SessionError,
+    explain_api_error,
+    load_context,
+)
 from sync import PrivateRepo
 
 HELP = """
 Commands
   /help     show this
   /quit     end the interview early and get the debrief for what you covered
+  /run      AI PM Prompt demo only: type /run on its own line, then your prompt,
+            then a blank line. The output appears, then narrate what you see.
 
 Answers can run over several lines. Finish one with a blank line.
 """
@@ -40,27 +48,37 @@ def say(text):
 
 
 def read_answer():
-    """Collect one multi-line answer. Returns None if the candidate wants to stop."""
-    print("\nyou > (blank line to send, /quit to stop)")
+    """Collect one multi-line message.
+
+    Returns ("answer", text), ("run", prompt), or ("quit", None).
+    """
+    print("\nyou > (blank line to send, /quit to stop, /help for commands)")
     lines = []
+    kind = "answer"
     while True:
         try:
             line = input()
         except (EOFError, KeyboardInterrupt):
             print()
-            return "\n".join(lines).strip() or None
+            text = "\n".join(lines).strip()
+            return (kind, text) if text else ("quit", None)
         stripped = line.strip()
         if stripped in ("/quit", "/stop"):
-            return None
+            return ("quit", None)
         if stripped == "/help":
             print(HELP)
+            continue
+        if stripped == "/run" and not lines:
+            kind = "run"
+            print("(prompt mode: type your prompt, then a blank line to run it)")
             continue
         if not stripped:
             if lines:
                 break
             continue
         lines.append(line)
-    return "\n".join(lines).strip() or None
+    text = "\n".join(lines).strip()
+    return (kind, text) if text else ("quit", None)
 
 
 def show(events, trace):
@@ -69,6 +87,10 @@ def show(events, trace):
             say(event["text"])
         elif event["kind"] == "notice":
             print("\n[%s]" % event["text"])
+        elif event["kind"] == "prompt_run":
+            print("\n--- prompt run (%d left) ---" % event["runs_left"])
+            print(event["output"])
+            print("--- now narrate: what did you see, and what would you change? ---")
         elif event["kind"] == "tool" and trace:
             marker = "!" if event["is_error"] else "-"
             print("\n  %s %s(%s)" % (marker, event["name"], json.dumps(event["input"])))
@@ -91,16 +113,24 @@ def drive(session, trace, anthropic=None, model=None):
     while not session.done:
         if not session.awaiting_answer:
             break
-        answer = read_answer()
-        if answer is None:
+        kind, text = read_answer()
+        if kind == "quit":
             show(step(session.quit), trace)
+        elif kind == "run":
+            if not hasattr(session, "run_prompt"):
+                print("\n[Offline mode can't run prompts. Describe the output you'd expect instead.]")
+                continue
+            try:
+                show(step(session.run_prompt, text), trace)
+            except SessionError as exc:
+                print("\n[%s]" % exc)
         else:
-            show(step(session.answer, answer), trace)
+            show(step(session.answer, text), trace)
 
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        description="Practice a product sense interview against Claude."
+        description="Practice a product sense or AI PM interview against Claude."
     )
     parser.add_argument(
         "--prompt",
@@ -145,16 +175,23 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
 
     if args.list_prompts:
-        for key in sorted(PROMPTS):
-            print("%s\n  %s\n" % (key, PROMPTS[key].question))
+        for track in TRACKS.values():
+            print("%s\n" % track.label.upper())
+            for key in sorted(k for k, p in PROMPTS.items() if p.track == track.key):
+                print("  %s\n    %s\n" % (key, PROMPTS[key].question))
         return 0
 
     state = new_state(args.prompt, args.level)
-    stage_names = ", ".join(s.label for s in STAGES)
+    stage_names = ", ".join(s.label for s in state.track.stages)
+    heading = "%s interview. Level: %s. Stages: %s." % (
+        state.track.label,
+        state.level.label,
+        stage_names,
+    )
 
     if args.offline:
         print("Prompt: %s" % state.prompt.question)
-        print("Level: %s. Stages: %s." % (state.level.label, stage_names))
+        print(heading)
         drive(OfflineSession(state), args.trace)
     else:
         try:
@@ -165,23 +202,23 @@ def main(argv=None):
                 "  pip install -r requirements.txt\n"
                 "Or run with --offline to practice the flow without it."
             )
-        context = load_context()
+        context = load_context(track=state.track.key)
         print("Prompt: %s\n" % state.prompt.question)
-        print("Level: %s. Stages: %s." % (state.level.label, stage_names))
+        print(heading)
         print(
             "Reference files: %s. Type /help for commands."
             % (", ".join(name for name, _ in context) if context else "none")
         )
-        history = load_history()
+        history = load_history(track=state.track.key)
         if history:
-            print("Previous interviews on record: %d." % len(history))
+            print("Previous %s interviews on record: %d." % (state.track.label, len(history)))
         session = LiveSession(
             state,
             anthropic.Anthropic(),
             model=args.model,
             effort=args.effort,
             context=context,
-            history_summary=summary_for_interviewer(history),
+            history_summary=summary_for_interviewer(history, state.track.key),
         )
         drive(session, args.trace, anthropic=anthropic, model=args.model)
 

@@ -27,7 +27,16 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from interview import DEFAULT_LEVEL, DEFAULT_PROMPT, LEVELS, PROMPTS, STAGES, render_debrief
+from interview import (
+    DEFAULT_LEVEL,
+    DEFAULT_PROMPT,
+    DEFAULT_TRACK,
+    LEVELS,
+    PROMPTS,
+    STAGES,
+    TRACKS,
+    render_debrief,
+)
 from offline import OfflineError, OfflineSession, new_state
 from progress import (
     PROGRESS_DIR,
@@ -54,7 +63,9 @@ STATIC = {
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
-SESSION_PATH = re.compile(r"^/api/sessions/([A-Za-z0-9_-]+)(?:/(answer|quit|retry|debrief\.md))?$")
+SESSION_PATH = re.compile(
+    r"^/api/sessions/([A-Za-z0-9_-]+)(?:/(answer|quit|retry|run|debrief\.md))?$"
+)
 MAX_BODY_BYTES = 64 * 1024
 
 
@@ -189,9 +200,28 @@ class InterviewHandler(BaseHTTPRequestHandler):
                 HTTPStatus.OK,
                 {
                     "prompts": [
-                        {"key": key, "question": PROMPTS[key].question} for key in PROMPTS
+                        {"key": key, "question": p.question, "track": p.track}
+                        for key, p in PROMPTS.items()
                     ],
                     "default_prompt": DEFAULT_PROMPT,
+                    "default_track": DEFAULT_TRACK,
+                    "tracks": [
+                        {
+                            "key": t.key,
+                            "label": t.label,
+                            "default_prompt": t.default_prompt,
+                            "has_runner": bool(t.runner_stage),
+                            "stages": [
+                                {"key": s.key, "label": s.label, "dimension": s.focus[0]}
+                                for s in t.stages
+                            ],
+                            "context_files": [
+                                name
+                                for name, _ in load_context(self.server.context_dir, t.key)
+                            ],
+                        }
+                        for t in TRACKS.values()
+                    ],
                     "levels": [{"key": l.key, "label": l.label} for l in LEVELS.values()],
                     "default_level": DEFAULT_LEVEL,
                     "stages": [
@@ -224,8 +254,8 @@ class InterviewHandler(BaseHTTPRequestHandler):
                 report + "\n",
                 "text/markdown; charset=utf-8",
                 {
-                    "Content-Disposition": 'attachment; filename="product-sense-debrief-%s.md"'
-                    % session.state.prompt.key
+                    "Content-Disposition": 'attachment; filename="%s-debrief-%s.md"'
+                    % (session.state.track.key, session.state.prompt.key)
                 },
             )
             return
@@ -258,6 +288,13 @@ class InterviewHandler(BaseHTTPRequestHandler):
                 events = self._run(session, session.answer, body.get("text", ""))
             elif action == "quit":
                 events = self._run(session, session.quit)
+            elif action == "run":
+                if not hasattr(session, "run_prompt"):
+                    raise HttpError(
+                        HTTPStatus.CONFLICT,
+                        "Offline mode can't run prompts. Describe the output you'd expect instead.",
+                    )
+                events = self._run(session, session.run_prompt, body.get("prompt", ""))
             else:
                 events = self._run(session, session.resume)
             saved = self._record_if_finished(session)
@@ -296,8 +333,10 @@ class InterviewHandler(BaseHTTPRequestHandler):
                 client,
                 model=self.server.model,
                 effort=self.server.effort,
-                context=load_context(self.server.context_dir),
-                history_summary=summary_for_interviewer(load_history(self.server.progress_dir)),
+                context=load_context(self.server.context_dir, state.track.key),
+                history_summary=summary_for_interviewer(
+                    load_history(self.server.progress_dir), state.track.key
+                ),
             )
             session.anthropic = anthropic
         else:
