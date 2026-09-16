@@ -13,8 +13,11 @@ A growing collection of hands-on projects to explore concepts, experiment with i
 | Project | What you can learn | Open it |
 | --- | --- | --- |
 | **Campaign Lab** | Practice Instagram campaign decisions, compare one-variable experiments, and trace why simulated results changed. | [Source and instructions](apps/campaign-lab/) · [Web app](https://campaign-lab-instagram.basanti-nashine.chatgpt.site) |
+| **Product Sense Mock** | Practice product sense interviews against a tool-using agent that probes your answers, scores six rubric dimensions, and files a debrief. | [Source and instructions](agents/product-sense-mock/) |
 
 Campaign Lab currently runs in the browser using a fictional simulation. A backend, saved event dataset, and database are future learning milestones, not implemented features.
+
+Product Sense Mock runs in the terminal. It has an offline mode that needs no API key, and a live mode that calls the Anthropic API.
 
 ## Repository structure
 
@@ -28,12 +31,19 @@ learn-by-building/
 │       ├── package.json
 │       └── README.md
 ├── agents/
+│   ├── product-sense-mock/
+│   │   ├── tests/
+│   │   ├── interview.py
+│   │   ├── offline.py
+│   │   ├── product_sense_mock.py
+│   │   ├── requirements.txt
+│   │   └── README.md
 │   └── README.md
 ├── package.json
 └── README.md
 ```
 
-Each app or agent belongs in its own folder and documents its setup, assumptions, and limitations. No agents have been added yet. Projects may use different languages and deploy independently.
+Each app or agent belongs in its own folder and documents its setup, assumptions, and limitations. Projects may use different languages and deploy independently: Campaign Lab is JavaScript, Product Sense Mock is Python.
 
 ## Try Campaign Lab locally
 
@@ -53,6 +63,16 @@ npm run check
 ```
 
 There are no npm dependencies to install for Campaign Lab. Root commands forward to the app's own package scripts.
+
+## Try Product Sense Mock locally
+
+From `agents/product-sense-mock`, with Python 3.10 or later:
+
+```sh
+python product_sense_mock.py --offline
+```
+
+Offline mode needs no API key and no dependencies. For the live interview, install `requirements.txt` and set `ANTHROPIC_API_KEY` in your environment. Its tests run with `python -m unittest discover -s tests -t .` and need neither. See the [agent's README](agents/product-sense-mock/) for the rubric, the flags, and its limitations.
 
 ## Deployment
 
