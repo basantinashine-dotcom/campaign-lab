@@ -14,7 +14,7 @@ A growing collection of hands-on projects to explore concepts, experiment with i
 | --- | --- | --- |
 | **Campaign Lab** | Practice Instagram campaign decisions, compare one-variable experiments, and trace why simulated results changed. | [Source and instructions](apps/campaign-lab/) · [Web app](https://campaign-lab-instagram.basanti-nashine.chatgpt.site) |
 | **LinkedIn Post Coach** | Design an AI review rubric, preserve an author's voice, and evaluate whether feedback is useful and grounded in the draft. | [Instructions and examples](agents/linkedin-post-coach/) |
-| **Product Sense Mock** | Practice product sense interviews against a tool-using agent that probes your answers, scores six rubric dimensions, and files a debrief. | [Source and instructions](agents/product-sense-mock/) |
+| **Product Sense Mock** | Practice product sense interviews (Clarify, Strategy, Users, Pain points, Solutions, MVP) against a tool-using agent that answers your clarifying questions, probes your answers, and scores each stage for your level. | [Source and instructions](agents/product-sense-mock/) |
 
 Campaign Lab currently runs in the browser using a fictional simulation. A backend, saved event dataset, and database are future learning milestones, not implemented features.
 
@@ -38,6 +38,7 @@ learn-by-building/
 │   │   ├── tests/
 │   │   └── README.md
 │   ├── product-sense-mock/
+│   │   ├── context/
 │   │   ├── tests/
 │   │   ├── web/
 │   │   ├── interview.py

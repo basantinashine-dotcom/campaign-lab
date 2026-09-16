@@ -5,12 +5,16 @@ these cover the real request/tool/result cycle without an API key or network.
 """
 
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace as NS
 
-from interview import DIMENSIONS, STAGES, TOOLS, InterviewState, PROMPTS
+from interview import DIMENSIONS, LEVELS, STAGES, TOOLS, InterviewState, PROMPTS
 from offline import OfflineError, OfflineSession
 from session import (
+    build_system,
+    load_context,
     KICKOFF,
     STOP_REQUEST,
     LiveSession,
@@ -39,7 +43,7 @@ def response(stop_reason, *blocks):
     return NS(stop_reason=stop_reason, content=list(blocks))
 
 
-def signal(score=3, dimension="problem_framing", gap="name a constraint"):
+def signal(score=3, dimension="clarifying", gap="name a constraint"):
     return {"dimension": dimension, "score": score, "evidence": "scoped it to week one", "gap": gap}
 
 
@@ -93,7 +97,10 @@ class LiveStartTests(unittest.TestCase):
         self.assertEqual(call["output_config"], {"effort": "medium"})
         self.assertIs(call["tools"], TOOLS)
         self.assertEqual(call["messages"], [{"role": "user", "content": KICKOFF}])
-        self.assertIn(PROMPTS["grocery-reorder"].question, call["system"])
+        system = call["system"]
+        self.assertEqual(len(system), 1)
+        self.assertEqual(system[0]["cache_control"], {"type": "ephemeral"})
+        self.assertIn(PROMPTS["grocery-reorder"].question, system[0]["text"])
 
     def test_cannot_start_twice(self):
         session = live(FakeClient(response("end_turn", text("Q1"))))
@@ -125,7 +132,7 @@ class LiveAnswerTests(unittest.TestCase):
         events = self.session.answer("I'd scope it to the first week.")
 
         self.assertEqual(self.session.state.probes_used, 1)
-        self.assertEqual(self.session.state.signals["problem_framing"].score, 3)
+        self.assertEqual(self.session.state.signals["clarifying"].score, 3)
         kinds = [e["kind"] for e in events]
         self.assertEqual(kinds, ["interviewer", "tool", "interviewer"])
         tool_event = events[1]
@@ -171,7 +178,7 @@ class LiveAnswerTests(unittest.TestCase):
 
         results = self.client.calls[-1]["messages"][-1]["content"]
         self.assertEqual([r["tool_use_id"] for r in results], ["t1", "t2"])
-        self.assertEqual(self.session.state.stage.key, "users")
+        self.assertEqual(self.session.state.stage.key, "strategy")
 
     def test_cannot_answer_twice_without_a_new_question(self):
         self.client.queue(response("end_turn", text("Q2")))
@@ -317,6 +324,79 @@ class ExplainApiErrorTests(unittest.TestCase):
         self.assertIsNone(explain_api_error(self.sdk, ValueError("bug"), "m"))
 
 
+class InstructionsTests(unittest.TestCase):
+    def system_text(self, level="pm", context=()):
+        state = InterviewState(prompt=PROMPTS["small-creators"], level=LEVELS[level])
+        return build_system(state, context)
+
+    def test_include_the_company_brief_and_private_notes(self):
+        text = self.system_text()
+        self.assertIn(PROMPTS["small-creators"].brief, text)
+        self.assertIn(PROMPTS["small-creators"].context, text)
+
+    def test_include_the_bar_for_the_chosen_level_only(self):
+        pm, senior = self.system_text("pm"), self.system_text("senior")
+        self.assertIn(LEVELS["pm"].bar, pm)
+        self.assertNotIn(LEVELS["senior"].bar, pm)
+        self.assertIn(LEVELS["senior"].bar, senior)
+
+    def test_include_every_stage_and_the_clarify_rules(self):
+        text = self.system_text()
+        for stage in STAGES:
+            self.assertIn(stage.label, text)
+        self.assertIn("In the Clarify stage the candidate asks and you answer", text)
+
+    def test_include_reference_files_by_name(self):
+        text = self.system_text(context=[("private/tips.md", "Anchor ideas to the root problem.")])
+        self.assertIn("--- private/tips.md ---", text)
+        self.assertIn("Anchor ideas to the root problem.", text)
+        self.assertIn("(none provided)", self.system_text())
+
+    def test_live_session_passes_context_into_its_instructions(self):
+        client = FakeClient(response("end_turn", text("Q1")))
+        session = live(client, context=[("tips.md", "Moonshots matter.")])
+        session.start()
+        self.assertIn("Moonshots matter.", client.calls[0]["system"][0]["text"])
+
+
+class LoadContextTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, relative, text):
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def test_missing_folder_means_no_context(self):
+        self.assertEqual(load_context(self.root / "nope"), [])
+
+    def test_loads_markdown_recursively_in_a_stable_order_and_skips_readmes(self):
+        self.write("b.md", "public b")
+        self.write("a.md", "public a")
+        self.write("README.md", "about the folder")
+        self.write("private/tips.md", "private tips")
+        self.write("private/README.md", "about the private repo")
+        self.write("private/notes.txt", "not markdown")
+        self.write("empty.md", "   ")
+
+        loaded = load_context(self.root)
+
+        self.assertEqual(
+            loaded,
+            [("a.md", "public a"), ("b.md", "public b"), ("private/tips.md", "private tips")],
+        )
+
+    def test_ignores_anything_inside_a_git_folder(self):
+        self.write("private/.git/description.md", "git internals")
+        self.write("private/tips.md", "tips")
+        self.assertEqual([name for name, _ in load_context(self.root)], ["private/tips.md"])
+
+
 class SnapshotTests(unittest.TestCase):
     def test_scores_are_hidden_until_the_interview_is_over(self):
         client = FakeClient(
@@ -329,7 +409,8 @@ class SnapshotTests(unittest.TestCase):
         view = snapshot(session)
         self.assertNotIn("scorecard", view)
         self.assertNotIn("debrief", view)
-        self.assertEqual(view["stages"], [s.key for s in STAGES])
+        self.assertEqual([s["label"] for s in view["stages"]], [s.label for s in STAGES])
+        self.assertEqual(view["level"], {"key": "pm", "label": "PM"})
 
         client.queue(response("tool_use", tool("t2", "end_interview", debrief())))
         session.quit()
@@ -351,7 +432,7 @@ class OfflineSessionTests(unittest.TestCase):
         self.assertEqual(len(self.questions(events)), 1)
         self.assertTrue(self.session.awaiting_answer)
 
-    def test_strong_answers_take_one_question_per_stage(self):
+    def test_strong_answers_take_one_question_per_stage_plus_the_brief(self):
         asked = len(self.questions(self.session.start()))
         tools = []
         while not self.session.done:
@@ -359,16 +440,26 @@ class OfflineSessionTests(unittest.TestCase):
             asked += len(self.questions(events))
             tools += [e["name"] for e in events if e["kind"] == "tool"]
 
-        self.assertEqual(asked, len(STAGES))
+        self.assertEqual(asked, len(STAGES) + 1)
         self.assertEqual(tools.count("record_signal"), len(DIMENSIONS))
         self.assertEqual(tools.count("advance_stage"), len(STAGES))
         self.assertEqual(tools.count("end_interview"), 1)
         self.assertEqual(self.session.state.scorecard()["assessed"], len(DIMENSIONS))
 
+    def test_clarify_hands_over_the_company_brief_even_after_a_strong_answer(self):
+        self.session.start()
+        events = self.session.answer(GOOD_ANSWER)
+        self.assertEqual(self.session.state.stage.key, "clarify")
+        self.assertIn(self.session.state.prompt.brief, self.questions(events)[0])
+
     def test_a_thin_answer_gets_a_follow_up_in_the_same_stage(self):
         self.session.start()
+        self.session.answer(GOOD_ANSWER)
+        self.session.answer(GOOD_ANSWER)
+        self.assertEqual(self.session.state.stage.key, "strategy")
+
         events = self.session.answer(THIN_ANSWER)
-        self.assertEqual(self.session.state.stage.key, "framing")
+        self.assertEqual(self.session.state.stage.key, "strategy")
         self.assertEqual(len(self.questions(events)), 1)
         self.assertEqual([e for e in events if e["kind"] == "tool"], [])
 
@@ -388,9 +479,9 @@ class OfflineSessionTests(unittest.TestCase):
 
     def test_quit_mid_stage_still_scores_what_was_heard(self):
         self.session.start()
-        self.session.answer(THIN_ANSWER)  # framing, follow-up pending
+        self.session.answer(THIN_ANSWER)  # clarify, follow-up pending
         self.session.quit()
-        self.assertIn("problem_framing", self.session.state.signals)
+        self.assertIn("clarifying", self.session.state.signals)
         self.assertTrue(self.session.done)
 
     def test_rejects_empty_answers_and_answers_after_the_end(self):

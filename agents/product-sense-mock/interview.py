@@ -1,9 +1,9 @@
 """Interview structure for the product sense mock agent.
 
 Pure data, validation, and state transitions. No network calls, no Anthropic
-SDK import, and no printing. Both the live agent (``product_sense_mock.py``)
-and the offline interviewer (``offline.py``) drive the same state machine from
-here, which is what makes the whole flow testable without an API key.
+SDK import, and no printing. Both the live agent (``session.py``) and the
+offline interviewer (``offline.py``) drive the same state machine from here,
+which is what makes the whole flow testable without an API key.
 """
 
 from dataclasses import dataclass, field
@@ -18,22 +18,41 @@ SCORE_LABELS = {
     4: "strong",
 }
 
-# The rubric. Order matters: it is the order of the scorecard.
+# The rubric: one dimension per stage. Order matters: it is the order of the
+# scorecard.
 DIMENSIONS = {
-    "problem_framing": "Clarifies the goal, scope, and constraints before proposing anything.",
-    "user_segmentation": "Names one specific segment and says why that one.",
-    "pain_points": "Grounds the segment in concrete, believable needs.",
-    "solution": "Proposes specific ideas and prioritizes among them.",
-    "tradeoffs": "Names what the idea costs, risks, or gives up.",
-    "metrics": "Defines success measures, including at least one counter-metric.",
+    "clarifying": (
+        "Asks only questions whose answers would change what gets built, and states "
+        "product context as assumptions instead of asking the interviewer to decide."
+    ),
+    "strategy": (
+        "Ties the opportunity to the company's mission and strategy, and explains why "
+        "this company would build it now."
+    ),
+    "user_segmentation": (
+        "Segments users by what the product enables, picks one group quickly, and gives "
+        "a logical rationale with rough sizing."
+    ),
+    "pain_points": (
+        "Finds genuinely distinct pain points, prioritizes one, and names the root "
+        "problem behind it."
+    ),
+    "solutions": (
+        "Generates meaningfully different ideas anchored to the root problem, including "
+        "a moonshot."
+    ),
+    "mvp": (
+        "Defines the smallest version that delivers real value, names what waits and "
+        "why, and says how success would be measured, including a counter-metric."
+    ),
 }
 
 
 @dataclass(frozen=True)
 class Stage:
-    """One phase of the interview, targeting one or two rubric dimensions.
+    """One phase of the interview, targeting one rubric dimension.
 
-    ``probe_budget`` is the number of candidate answers the interviewer may
+    ``probe_budget`` is the number of candidate messages the interviewer may
     spend here. When it runs out, the tool result says so and the interviewer
     has to move on. That budget is the reason this is a state machine and not
     just a long system prompt: the limit is enforced by the harness rather than
@@ -41,6 +60,7 @@ class Stage:
     """
 
     key: str
+    label: str
     focus: tuple
     brief: str
     probe_budget: int
@@ -48,49 +68,103 @@ class Stage:
 
 STAGES = (
     Stage(
-        "framing",
-        ("problem_framing",),
-        "Get the candidate to scope the problem and commit to a goal before solving.",
+        "clarify",
+        "Clarify",
+        ("clarifying",),
+        "The candidate asks you questions. Answer them from the company brief. If they ask "
+        "you to decide product context for them, ask what they would assume instead.",
+        3,
+    ),
+    Stage(
+        "strategy",
+        "Strategy",
+        ("strategy",),
+        "Ask why this company would build this, and why now: mission, strategy, and "
+        "competitive position.",
         2,
     ),
     Stage(
         "users",
-        ("user_segmentation", "pain_points"),
-        "Push for one specific segment, then the concrete pains that segment has.",
-        3,
-    ),
-    Stage(
-        "solution",
-        ("solution",),
-        "Ask for specific ideas, then make the candidate prioritize between them.",
-        3,
-    ),
-    Stage(
-        "tradeoffs",
-        ("tradeoffs",),
-        "Probe what the chosen idea costs and who it makes worse off.",
+        "Users",
+        ("user_segmentation",),
+        "Ask them to segment the users and commit to one group, with a rationale and rough "
+        "sizing.",
         2,
     ),
     Stage(
-        "metrics",
-        ("metrics",),
-        "Ask how they would know it worked, and what would tell them it went wrong.",
+        "pain_points",
+        "Pain points",
+        ("pain_points",),
+        "Ask for that group's pain points, then which one they would solve and the root "
+        "problem behind it.",
+        2,
+    ),
+    Stage(
+        "solutions",
+        "Solutions",
+        ("solutions",),
+        "Ask for solutions that are genuinely different from each other, tied to the root "
+        "problem. Probe for a moonshot if none comes up.",
+        2,
+    ),
+    Stage(
+        "mvp",
+        "MVP",
+        ("mvp",),
+        "Ask for the smallest version worth building and what waits, then how they would "
+        "know it worked and what would tell them it was doing harm.",
         2,
     ),
 )
 
 
 @dataclass(frozen=True)
-class Prompt:
-    """A practice question, plus private notes for the interviewer only.
+class Level:
+    """The seniority the candidate is practising for. It changes the bar, not the stages."""
 
-    ``context`` is never shown to the candidate. It goes in the system prompt
-    so the interviewer knows what a strong answer tends to cover.
+    key: str
+    label: str
+    bar: str
+
+
+LEVELS = {
+    level.key: level
+    for level in (
+        Level(
+            "pm",
+            "PM",
+            "Below Senior PM. In Strategy, a clear mission and a sensible north star, "
+            "covered briefly, is a solid answer; do not mark them down for skipping "
+            "competitive analysis or a long-term arc. Elsewhere, reward clear structure and "
+            "decisiveness over depth of market knowledge.",
+        ),
+        Level(
+            "senior",
+            "Senior PM+",
+            "Senior PM and above. In Strategy, a solid answer also explains why this company "
+            "specifically, names the competitive gap, and sketches the longer arc; at this "
+            "level Strategy often decides the interview. Expect sizing with stated "
+            "reasoning in Users, and specific, justified cuts in MVP.",
+        ),
+    )
+}
+
+DEFAULT_LEVEL = "pm"
+
+
+@dataclass(frozen=True)
+class Prompt:
+    """A practice question, plus private material for the interviewer only.
+
+    ``context`` tells the interviewer what strong answers tend to cover.
+    ``brief`` is the company situation the interviewer answers clarifying
+    questions from. Neither is shown to the candidate unless asked.
     """
 
     key: str
     question: str
     context: str
+    brief: str
 
 
 PROMPTS = {
@@ -103,6 +177,13 @@ PROMPTS = {
             "Strong answers separate the reasons a first order does not repeat (basket "
             "rebuild effort, delivery slot friction, substitution disappointment, price "
             "shock at checkout) and pick one instead of solving all four.",
+            "Fictional company: Basket, a grocery delivery app in 12 metro areas, about 1.5 "
+            "million monthly customers, partnered with regional supermarket chains. Mission: "
+            "give people their evenings back. Competes with larger national delivery apps "
+            "on price and speed and cannot win either outright. Only 38% of first-time "
+            "customers order again within 30 days. Growth has come from heavy first-order "
+            "discounts, which the board wants reduced this year. Mobile apps on iOS and "
+            "Android; no hardware. Timeline is open; a small team of about 8.",
         ),
         Prompt(
             "small-creators",
@@ -111,6 +192,14 @@ PROMPTS = {
             "small creator actually lacks: feedback signal, a reason to post again, and a "
             "sense that the next post is worth the effort. Watch for metrics that would be "
             "gamed by posting more.",
+            "Instagram, part of Meta. Instagram's mission: bring you closer to the people "
+            "and things you love. Competes for creators with TikTok, YouTube Shorts, and "
+            "Snapchat, where small accounts can break out through recommendation feeds. "
+            "For this exercise, assume most accounts that post have fewer than 1,000 "
+            "followers and many stop posting within their first few months; these are "
+            "practice assumptions, not published figures. Treat this as the core Instagram app, all "
+            "markets, no fixed deadline. The candidate may assume reasonable figures if "
+            "they state them.",
         ),
         Prompt(
             "notes-decline",
@@ -120,6 +209,13 @@ PROMPTS = {
             "theorising (new versus existing users, platform, cohort), separate a "
             "measurement artifact from a real decline, and say what evidence would change "
             "their mind.",
+            "Fictional company: Jotter, a freemium note-taking app with about 4 million "
+            "weekly active users across web, iOS, Android, and desktop. Mission: help people "
+            "remember what matters. Competes with larger all-in-one workspace tools and with "
+            "built-in phone notes apps. Six weeks ago it shipped a redesigned mobile editor "
+            "and changed how 'active' is logged on desktop. School term ended in several "
+            "large markets last month. Paid conversion is steady. If asked for data the "
+            "candidate would not have, say it is available and ask what they would look for.",
         ),
         Prompt(
             "commute-podcasts",
@@ -127,6 +223,12 @@ PROMPTS = {
             "Strong answers use the constraint of the commute itself: hands busy, eyes busy, "
             "a duration that is fixed and known in advance, interruptions, patchy "
             "connectivity. Weak answers design a generic podcast app.",
+            "Fictional company: Earshot, an independent podcast app with about 3 million "
+            "monthly listeners, strongest in North America and Europe. Mission: make every "
+            "spare minute worth listening to. Competes with the large music-and-podcast "
+            "streaming apps and the phone makers' built-in podcast apps. Revenue is a "
+            "premium subscription. It has integrations with major car systems and "
+            "smartwatches, but no hardware of its own. No fixed timeline.",
         ),
     )
 }
@@ -161,6 +263,7 @@ class InterviewState:
     """
 
     prompt: Prompt
+    level: Level = field(default_factory=lambda: LEVELS[DEFAULT_LEVEL])
     stage_index: int = 0
     probes_used: int = 0
     signals: dict = field(default_factory=dict)
@@ -198,7 +301,7 @@ class InterviewState:
         return [d for d in stage.focus if d not in self.signals]
 
     def note_answer(self):
-        """Count one candidate answer against the current stage's probe budget."""
+        """Count one candidate message against the current stage's probe budget."""
         self.probes_used += 1
 
     # --- tool implementations --------------------------------------------
@@ -291,7 +394,7 @@ class InterviewState:
             "probes_remaining": stage.probe_budget,
             "stages_remaining": len(STAGES) - self.stage_index - 1,
             "left_unassessed": left_uncovered,
-            "guidance": "Ask your opening question for the %s stage." % stage.key,
+            "guidance": "Open the %s stage with one question." % stage.label,
         }
 
     def end_interview(self, headline, strengths, improvements, next_prompt):
@@ -342,6 +445,7 @@ class InterviewState:
             rows.append(
                 {
                     "dimension": dimension,
+                    "label_text": dimension_label(dimension),
                     "description": description,
                     "score": signal.score if signal else None,
                     "label": SCORE_LABELS[signal.score] if signal else "not assessed",
@@ -367,6 +471,14 @@ class InterviewState:
             return None
         ordered = [d for d in DIMENSIONS if d in self.signals]
         return min(ordered, key=lambda d: self.signals[d].score)
+
+
+def dimension_label(dimension):
+    """Human name for a dimension: the label of the stage that scores it."""
+    for stage in STAGES:
+        if dimension in stage.focus:
+            return stage.label
+    return dimension.replace("_", " ")
 
 
 # --- tool schemas --------------------------------------------------------
@@ -422,7 +534,7 @@ TOOLS = [
         "name": "advance_stage",
         "description": (
             "Move the interview to the next stage. Call this once the current stage's "
-            "dimensions are recorded, or when a tool result tells you the probe budget is "
+            "dimension is recorded, or when a tool result tells you the probe budget is "
             "spent. The result gives you the next stage's focus and budget."
         ),
         "strict": True,
@@ -466,13 +578,13 @@ TOOLS = [
                     "items": {"type": "string"},
                     "description": (
                         "Two or three specific changes that would raise a score, each naming "
-                        "the dimension it would move."
+                        "the stage it would move."
                     ),
                 },
                 "next_prompt": {
                     "type": "string",
                     "description": (
-                        "A different practice prompt aimed at their weakest dimension."
+                        "A different practice prompt aimed at their weakest stage."
                     ),
                 },
             },
@@ -514,6 +626,8 @@ def render_debrief(state, when=None):
     lines = ["# Product sense debrief", ""]
     lines.append("**Prompt:** %s" % state.prompt.question)
     lines.append("")
+    lines.append("**Level:** %s" % state.level.label)
+    lines.append("")
     if when:
         lines.append("**Date:** %s" % when)
         lines.append("")
@@ -524,7 +638,7 @@ def render_debrief(state, when=None):
 
     if card["assessed"]:
         lines.append(
-            "**Score: %d / %d** across %d assessed dimension%s."
+            "**Score: %d / %d** across %d assessed stage%s."
             % (
                 card["total"],
                 card["possible"],
@@ -536,7 +650,7 @@ def render_debrief(state, when=None):
         lines.append("**Score:** nothing was assessed before the interview ended.")
     lines.append("")
 
-    lines.append("| Dimension | Score | What you showed | What would raise it |")
+    lines.append("| Stage | Score | What you showed | What would raise it |")
     lines.append("| --- | --- | --- | --- |")
     for row in card["rows"]:
         score = (
@@ -547,7 +661,7 @@ def render_debrief(state, when=None):
         lines.append(
             "| %s | %s | %s | %s |"
             % (
-                row["dimension"].replace("_", " "),
+                row["label_text"],
                 score,
                 _cell(row["evidence"]),
                 _cell(row["gap"]),

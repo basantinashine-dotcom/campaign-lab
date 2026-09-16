@@ -19,61 +19,68 @@ both modes identically.
 
 import re
 
-from interview import MAX_SCORE, PROMPTS, InterviewState
+from interview import DEFAULT_LEVEL, LEVELS, MAX_SCORE, PROMPTS, InterviewState, dimension_label
 
 # Two questions per stage: the opening, and one follow-up used when the opening
-# answer scores below "solid" and the probe budget allows.
+# answer scores below "solid" and the probe budget allows. Clarify always gets
+# its follow-up, because that is where the scripted interviewer hands over the
+# company brief in place of answering questions.
 STAGE_QUESTIONS = {
-    "framing": (
-        "Before you design anything: how are you reading this problem, and what "
-        "are you actually trying to achieve?",
-        "What are you deliberately leaving out of scope, and why that boundary?",
+    "clarify": (
+        "Here's the prompt. Before you design anything, what would you like to ask me? "
+        "Ask only what would change what you build.",
+        "I can't answer questions one by one in offline mode, so here is what you can "
+        "assume:\n\n{brief}\n\nWhat else are you assuming before you move on?",
+    ),
+    "strategy": (
+        "Why would this company build this, and why now?",
+        "How does this fit the company's mission, and what would you set as the north star?",
     ),
     "users": (
-        "Who specifically is this for? Pick one group rather than listing several.",
-        "What does that group find hard today? Be concrete about the moment it "
-        "goes wrong for them.",
+        "Who are the users? Segment them, then pick one group to design for.",
+        "Why that group? Roughly how many people are in it?",
     ),
-    "solution": (
-        "What would you build for them?",
-        "If you could only ship one of those, which one, and what makes it first?",
+    "pain_points": (
+        "Walk me through that group's day. What are their biggest pain points?",
+        "Which one would you solve first, and what is the root problem behind it?",
     ),
-    "tradeoffs": (
-        "What does that choice cost you? Who is worse off after you ship it?",
-        "What would have to be true for this to be the wrong call?",
+    "solutions": (
+        "What solutions would you consider? Give me options that are genuinely different "
+        "from each other.",
+        "What's the moonshot version? What does this become in three years?",
     ),
-    "metrics": (
-        "How would you know it worked?",
-        "What would tell you it was quietly doing harm, even while your main "
-        "metric went up?",
+    "mvp": (
+        "What's the MVP? What would you build first, and what waits?",
+        "How would you know it worked, and what metric would tell you it was quietly "
+        "doing harm?",
     ),
 }
 
 # Words that suggest an answer is at least reaching for the dimension.
 KEYWORDS = {
-    "problem_framing": (
-        "goal", "assume", "scope", "clarify", "constraint", "success",
-        "context", "problem", "define", "objective",
+    "clarifying": (
+        "?", "assume", "assuming", "clarify", "do we mean", "scope", "constraint",
+        "goal", "timeline", "market",
+    ),
+    "strategy": (
+        "mission", "strategy", "strategic", "competit", "why now", "north star",
+        "differentiat", "advantage", "trend", "position",
     ),
     "user_segmentation": (
-        "segment", "persona", "audience", "users who", "people who",
-        "first-time", "new user", "power user", "cohort", "specifically",
+        "segment", "persona", "audience", "users who", "people who", "first-time",
+        "cohort", "specifically", "million", "group",
     ),
     "pain_points": (
-        "pain", "friction", "frustrat", "struggl", "blocker", "confus",
-        "drop off", "abandon", "hard to", "annoy", "give up",
+        "pain", "friction", "frustrat", "struggl", "root", "confus", "drop off",
+        "abandon", "hard to", "give up",
     ),
-    "solution": (
-        "build", "feature", "prototype", "ship", "priorit", "first", "mvp",
-        "instead", "flow", "screen", "nudge",
+    "solutions": (
+        "build", "feature", "idea", "option", "moonshot", "platform", "hardware",
+        "instead", "alternatively", "automat",
     ),
-    "tradeoffs": (
-        "tradeoff", "trade-off", "cost", "risk", "downside", "give up",
-        "worse off", "however", "expense", "sacrifice", "cannibal",
-    ),
-    "metrics": (
-        "metric", "measure", "rate", "retention", "conversion", "counter",
-        "guardrail", "baseline", "%", "percent", "north star",
+    "mvp": (
+        "mvp", "first version", "cut", "waits", "later", "launch", "metric", "measure",
+        "counter", "guardrail",
     ),
 }
 
@@ -178,7 +185,8 @@ class OfflineSession:
                 self._best[dimension] = candidate
 
         thin = any(self._best[d][0] < SOLID for d in stage.focus)
-        if thin and self._asked_in_stage == 1 and self.state.probes_remaining > 0:
+        needs_follow_up = thin or stage.key == "clarify"
+        if needs_follow_up and self._asked_in_stage == 1 and self.state.probes_remaining > 0:
             return self._ask()
 
         events = self._record_stage()
@@ -209,6 +217,7 @@ class OfflineSession:
         stage = self.state.stage
         opening, follow_up = STAGE_QUESTIONS[stage.key]
         question = opening if self._asked_in_stage == 0 else follow_up
+        question = question.replace("{brief}", self.state.prompt.brief)
         self._asked_in_stage += 1
         self.awaiting_answer = True
         return [{"kind": "interviewer", "text": question}]
@@ -253,17 +262,13 @@ class OfflineSession:
             headline = "Most answers were too short or too general for this heuristic to credit."
 
         if strong:
-            strengths = [
-                "%s: %s" % (r["dimension"].replace("_", " "), r["evidence"]) for r in strong
-            ]
+            strengths = ["%s: %s" % (r["label_text"], r["evidence"]) for r in strong]
         elif card["assessed"]:
             strengths = ["Nothing scored solid, but these scores are a baseline for your next run."]
         else:
             strengths = []
 
-        improvements = [
-            "%s -- %s" % (r["dimension"].replace("_", " "), r["gap"]) for r in weak
-        ]
+        improvements = ["%s -- %s" % (r["label_text"], r["gap"]) for r in weak]
         if not card["assessed"]:
             improvements = ["Answer at least the first question to get a scored debrief."]
         elif not improvements:
@@ -279,8 +284,8 @@ class OfflineSession:
             )
         elif weakest:
             next_prompt = (
-                "Your lowest dimension was %s. Try this prompt next and answer it with "
-                "that dimension in mind: %s" % (weakest.replace("_", " "), suggestion)
+                "Your lowest stage was %s. Try this prompt next and answer it with that "
+                "stage in mind: %s" % (dimension_label(weakest), suggestion)
             )
         else:
             next_prompt = suggestion
@@ -322,8 +327,10 @@ def run_offline(state, ask, say):
         pending = session.answer(answer)
 
 
-def new_state(prompt_key):
+def new_state(prompt_key, level_key=DEFAULT_LEVEL):
     """Convenience constructor used by the CLI, the web server, and the tests."""
     if prompt_key not in PROMPTS:
         raise KeyError(prompt_key)
-    return InterviewState(prompt=PROMPTS[prompt_key])
+    if level_key not in LEVELS:
+        raise KeyError(level_key)
+    return InterviewState(prompt=PROMPTS[prompt_key], level=LEVELS[level_key])

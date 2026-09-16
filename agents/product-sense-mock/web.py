@@ -27,9 +27,17 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from interview import DEFAULT_PROMPT, PROMPTS, render_debrief
+from interview import DEFAULT_LEVEL, DEFAULT_PROMPT, LEVELS, PROMPTS, STAGES, render_debrief
 from offline import OfflineError, OfflineSession, new_state
-from session import MODEL, LiveSession, SessionError, explain_api_error, snapshot
+from session import (
+    CONTEXT_DIR,
+    MODEL,
+    LiveSession,
+    SessionError,
+    explain_api_error,
+    load_context,
+    snapshot,
+)
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
 STATIC = {
@@ -46,11 +54,14 @@ class InterviewServer(ThreadingHTTPServer):
 
     daemon_threads = True
 
-    def __init__(self, address, model=MODEL, effort="high", client_factory=None):
+    def __init__(
+        self, address, model=MODEL, effort="high", client_factory=None, context_dir=CONTEXT_DIR
+    ):
         super().__init__(address, InterviewHandler)
         self.model = model
         self.effort = effort
         self.client_factory = client_factory
+        self.context_dir = context_dir
         self.sessions = {}
         self.locks = {}
         self.registry_lock = threading.Lock()
@@ -163,6 +174,16 @@ class InterviewHandler(BaseHTTPRequestHandler):
                         {"key": key, "question": PROMPTS[key].question} for key in PROMPTS
                     ],
                     "default_prompt": DEFAULT_PROMPT,
+                    "levels": [{"key": l.key, "label": l.label} for l in LEVELS.values()],
+                    "default_level": DEFAULT_LEVEL,
+                    "stages": [
+                        {"key": s.key, "label": s.label, "dimension": s.focus[0]}
+                        for s in STAGES
+                    ],
+                    # File names only, so the page can confirm what the interviewer reads.
+                    "context_files": [
+                        name for name, _ in load_context(self.server.context_dir)
+                    ],
                     "live_available": self.server.live_available(),
                     "model": self.server.model,
                 },
@@ -218,8 +239,11 @@ class InterviewHandler(BaseHTTPRequestHandler):
         prompt_key = body.get("prompt", DEFAULT_PROMPT)
         if prompt_key not in PROMPTS:
             raise HttpError(HTTPStatus.BAD_REQUEST, "Unknown prompt: %r" % prompt_key)
+        level_key = body.get("level", DEFAULT_LEVEL)
+        if level_key not in LEVELS:
+            raise HttpError(HTTPStatus.BAD_REQUEST, "Unknown level: %r" % level_key)
         mode = body.get("mode", "live")
-        state = new_state(prompt_key)
+        state = new_state(prompt_key, level_key)
 
         if mode == "offline":
             session = OfflineSession(state)
@@ -232,8 +256,13 @@ class InterviewHandler(BaseHTTPRequestHandler):
                     "The anthropic package is not installed. Run "
                     "pip install -r requirements.txt, or use offline mode.",
                 )
+            # Read per interview, so edits to context files apply without a restart.
             session = LiveSession(
-                state, client, model=self.server.model, effort=self.server.effort
+                state,
+                client,
+                model=self.server.model,
+                effort=self.server.effort,
+                context=load_context(self.server.context_dir),
             )
             session.anthropic = anthropic
         else:

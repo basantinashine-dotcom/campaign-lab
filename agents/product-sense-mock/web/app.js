@@ -6,14 +6,6 @@
 
 const $ = (selector) => document.querySelector(selector);
 
-const STAGE_LABELS = {
-  framing: 'Framing',
-  users: 'Users',
-  solution: 'Solution',
-  tradeoffs: 'Tradeoffs',
-  metrics: 'Metrics',
-};
-
 const app = {
   config: null,
   id: null,
@@ -68,9 +60,36 @@ function show(screen) {
   window.scrollTo({ top: 0 });
 }
 
-function label(dimension) {
-  return dimension.replace(/_/g, ' ');
+// Stage names come from the server, so the page never goes out of step with
+// interview.py. A dimension is shown by the name of the stage that scores it.
+function stageLabel(key) {
+  const stage = app.config.stages.find((s) => s.key === key);
+  return stage ? stage.label : key;
 }
+
+function dimensionLabel(dimension) {
+  const stage = app.config.stages.find((s) => s.dimension === dimension);
+  return stage ? stage.label : dimension.replace(/_/g, ' ');
+}
+
+function radio(name, value, checked, title, detail) {
+  const choice = el('label', 'choice');
+  const input = el('input');
+  input.type = 'radio';
+  input.name = name;
+  input.value = value;
+  input.checked = checked;
+  const text = el('span');
+  if (detail) text.append(el('small', 'prompt-key', detail));
+  text.append(el('strong', null, title));
+  choice.append(input, text);
+  return choice;
+}
+
+const LEVEL_DETAIL = {
+  pm: 'Mission and a north star are enough for Strategy.',
+  senior: 'Strategy also needs why this company, the competitive gap, and the longer arc.',
+};
 
 // --- setup ------------------------------------------------------------------
 
@@ -85,21 +104,29 @@ async function init() {
 
   const choices = $('#prompt-choices');
   for (const prompt of app.config.prompts) {
-    const choice = el('label', 'choice');
-    const input = el('input');
-    input.type = 'radio';
-    input.name = 'prompt';
-    input.value = prompt.key;
-    input.checked = prompt.key === app.config.default_prompt;
-    const text = el('span');
-    text.append(el('small', 'prompt-key', prompt.key.replace(/-/g, ' ')), el('strong', null, prompt.question));
-    choice.append(input, text);
-    choices.append(choice);
+    choices.append(radio(
+      'prompt', prompt.key, prompt.key === app.config.default_prompt,
+      prompt.question, prompt.key.replace(/-/g, ' '),
+    ));
   }
+
+  const levels = $('#level-choices');
+  for (const level of app.config.levels) {
+    const choice = radio('level', level.key, level.key === app.config.default_level, level.label);
+    const detail = LEVEL_DETAIL[level.key];
+    if (detail) choice.querySelector('span').append(el('small', null, detail));
+    levels.append(choice);
+  }
+
+  const files = app.config.context_files;
+  $('#context-note').textContent = files.length
+    ? `Claude will also judge against your reference files: ${files.join(', ')}.`
+    : 'No reference files found, so Claude judges from the built-in rubric only.';
 
   const updateWarning = () => {
     const live = document.querySelector('input[name=mode]:checked').value === 'live';
     $('#live-warning').hidden = !live || app.config.live_available;
+    $('#context-note').hidden = !live;
   };
   for (const input of document.querySelectorAll('input[name=mode]')) {
     input.addEventListener('change', updateWarning);
@@ -121,19 +148,21 @@ async function startInterview(event) {
   if (app.busy) return;
   const prompt = document.querySelector('input[name=prompt]:checked');
   const mode = document.querySelector('input[name=mode]:checked').value;
-  if (!prompt) {
-    showSetupError('Pick a question first.');
+  const level = document.querySelector('input[name=level]:checked');
+  if (!prompt || !level) {
+    showSetupError('Pick a question and a level first.');
     return;
   }
   showSetupError('');
 
   const question = app.config.prompts.find((p) => p.key === prompt.value).question;
-  resetInterview(question, mode);
+  const levelLabel = app.config.levels.find((l) => l.key === level.value).label;
+  resetInterview(question, mode, levelLabel);
   show('interview-screen');
   setBusy(true, mode);
 
   try {
-    const data = await api('/api/sessions', { prompt: prompt.value, mode });
+    const data = await api('/api/sessions', { prompt: prompt.value, mode, level: level.value });
     app.id = data.id;
     apply(data);
   } catch (error) {
@@ -145,28 +174,28 @@ async function startInterview(event) {
 
 // --- interview --------------------------------------------------------------
 
-function resetInterview(question, mode) {
+function resetInterview(question, mode, levelLabel) {
   app.id = null;
   app.session = null;
   $('#question').textContent = question;
   $('#transcript').replaceChildren();
   $('#answer').value = '';
   $('#mode-label').textContent = mode === 'live'
-    ? `Interviewer: Claude (${app.config.model})`
-    : 'Interviewer: offline script with keyword scoring';
+    ? `Interviewer: Claude (${app.config.model}). Level: ${levelLabel}.`
+    : `Interviewer: offline script with keyword scoring. Level: ${levelLabel}.`;
   hideError();
-  renderStages(['framing', 'users', 'solution', 'tradeoffs', 'metrics'], 0);
+  renderStages(app.config.stages, 0);
 }
 
 function renderStages(stages, index) {
   const list = $('#stages');
   list.replaceChildren();
-  stages.forEach((key, i) => {
+  stages.forEach((stage, i) => {
     const item = el('li');
     if (i < index) item.classList.add('done');
     if (i === index) item.classList.add('active');
     const marker = el('b', null, i < index ? '✓' : String(i + 1));
-    item.append(marker, el('span', 'stage-label', STAGE_LABELS[key] || key));
+    item.append(marker, el('span', 'stage-label', stage.label));
     if (i === index) item.setAttribute('aria-current', 'step');
     list.append(item);
   });
@@ -184,11 +213,11 @@ function summarizeTool(event) {
   const input = event.input || {};
   switch (event.name) {
     case 'record_signal':
-      return `Scored ${label(input.dimension)}: ${input.score} (${event.result.recorded.label})`;
+      return `Scored ${dimensionLabel(input.dimension)}: ${input.score} (${event.result.recorded.label})`;
     case 'advance_stage':
       return event.result.stage === 'debrief'
         ? 'All stages done'
-        : `Moved on to ${STAGE_LABELS[event.result.stage] || event.result.stage}`;
+        : `Moved on to ${stageLabel(event.result.stage)}`;
     case 'end_interview':
       return 'Filed the debrief';
     default:
@@ -329,9 +358,10 @@ async function retry() {
 // --- debrief ----------------------------------------------------------------
 
 function renderDebrief() {
-  const { scorecard, debrief, prompt, mode, ended_reason: endedReason } = app.session;
+  const { scorecard, debrief, prompt, mode, level, ended_reason: endedReason } = app.session;
 
-  $('#debrief-mode').textContent = mode === 'live' ? 'Interviewed by Claude' : 'Offline script (keyword scoring)';
+  const interviewer = mode === 'live' ? 'Interviewed by Claude' : 'Offline script (keyword scoring)';
+  $('#debrief-mode').textContent = `${interviewer} · Level: ${level.label}`;
   $('#debrief-headline').textContent = (debrief && debrief.headline) || endedReasonText(endedReason);
   $('#debrief-question').textContent = prompt.question;
 
@@ -355,7 +385,7 @@ function renderDebrief() {
     );
     scoreCell.append(chip);
     tr.append(
-      el('td', null, label(row.dimension)),
+      el('td', null, row.label_text),
       scoreCell,
       el('td', null, row.evidence || '—'),
       el('td', 'gap', row.gap || '—'),

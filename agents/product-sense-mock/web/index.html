@@ -21,7 +21,7 @@
   <main id="setup-screen" class="screen">
     <p class="kicker"><span>PRACTICE</span> Product sense interview</p>
     <h1>Rehearse the interview before it counts.</h1>
-    <p class="intro">An interviewer asks one question at a time across five stages, pushes on vague answers, and quietly scores six dimensions. You see the scores at the end, not during.</p>
+    <p class="intro">Six stages: Clarify, Strategy, Users, Pain points, Solutions, and MVP. You start by asking the questions; after that, the interviewer asks one question at a time, pushes on vague answers, and quietly scores each stage. You see the scores at the end, not during.</p>
 
     <form id="setup-form" class="setup-grid">
       <fieldset class="panel">
@@ -30,6 +30,11 @@
       </fieldset>
 
       <div class="setup-side">
+        <fieldset class="panel">
+          <legend>Your level</legend>
+          <div id="level-choices"></div>
+        </fieldset>
+
         <fieldset class="panel">
           <legend>Who interviews you</legend>
           <label class="choice">
@@ -40,6 +45,7 @@
             <input type="radio" name="mode" value="offline">
             <span><strong>Offline script</strong><small>Fixed questions and keyword scoring. Free and instant, but the scores are not real feedback.</small></span>
           </label>
+          <p id="context-note" class="note" hidden></p>
           <p id="live-warning" class="note warning" hidden>No API key was found in the terminal that started this server. Live interviews will probably fail. Stop the server, set <code>ANTHROPIC_API_KEY</code>, and start it again, or use the offline script.</p>
         </fieldset>
 
@@ -111,7 +117,7 @@
     <div class="panel table-panel">
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Dimension</th><th>Score</th><th>What you showed</th><th>What would raise it</th></tr></thead>
+          <thead><tr><th>Stage</th><th>Score</th><th>What you showed</th><th>What would raise it</th></tr></thead>
           <tbody id="scorecard"></tbody>
         </table>
       </div>
