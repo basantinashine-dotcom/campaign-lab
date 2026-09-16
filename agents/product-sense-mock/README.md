@@ -76,13 +76,10 @@ A dimension the interviewer never got to is reported as **not assessed** rather 
 
 | Key | Question |
 | --- | --- |
-| `campaign-lab-next` | Campaign Lab teaches an online store owner to run their first Instagram ad campaign. What would you build next, and who is it for? |
-| `grocery-reorder` | Design a feature that helps first-time grocery delivery customers place a second order. |
+| `grocery-reorder` (default) | Design a feature that helps first-time grocery delivery customers place a second order. |
 | `small-creators` | How would you improve Instagram for creators with fewer than 1,000 followers? |
 | `notes-decline` | Weekly active users of a note-taking app fell 8% month over month. Work out why, then decide what to do about it. |
 | `commute-podcasts` | Design something for people who listen to podcasts during a commute. |
-
-`campaign-lab-next` points at [Campaign Lab](../../apps/campaign-lab/), the other project in this collection. Its stated success criterion is that a learner can name a decision they changed and explain its effect on contribution, which is a reasonable thing to be interviewed about.
 
 Each prompt carries private interviewer notes on what strong answers tend to cover. Those go in the system prompt and are never read out.
 
@@ -104,15 +101,15 @@ Abridged from a real `--offline` run:
 ```markdown
 # Product sense debrief
 
-**Prompt:** Campaign Lab teaches an online store owner to run their first Instagram ad campaign...
+**Prompt:** Design a feature that helps first-time grocery delivery customers place a second order.
 
-**Score: 17 / 24** across 6 assessed dimensions.
+**Score: 16 / 24** across 6 assessed dimensions.
 
 | Dimension | Score | What you showed | What would raise it |
 | --- | --- | --- | --- |
-| problem framing | 4 strong | My goal is to get a store owner to make a second ad decision... | -- |
-| pain points | 2 partial | First-time advertisers who just spent 50 dollars... | ...looked for language that engages pain points directly |
-| metrics | 1 missing | (no answer given) | Any answer at all would score higher than silence. |
+| problem framing | 4 strong | My goal is to get first-time customers to a second order within 14 days, so I will scope this to the week after their first delivery... | -- |
+| pain points | 2 partial | They have to rebuild the whole basket from scratch, which takes 20 minutes, so it is easier to go to the shop. | This heuristic looked for more than a sentence of detail and language that engages pain points directly and did not find it. |
+| tradeoffs | 2 partial | It might cost us basket growth. | This heuristic looked for more than a sentence of detail and a number, an example, or a stated reason and did not find it. |
 ```
 
 ## Tests

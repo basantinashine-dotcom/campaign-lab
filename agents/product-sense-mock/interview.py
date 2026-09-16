@@ -128,20 +128,10 @@ PROMPTS = {
             "a duration that is fixed and known in advance, interruptions, patchy "
             "connectivity. Weak answers design a generic podcast app.",
         ),
-        Prompt(
-            "campaign-lab-next",
-            "Campaign Lab teaches an online store owner to run their first Instagram ad "
-            "campaign. What would you build next, and who is it for?",
-            "This repository's own product question. Strong answers pick one learner and "
-            "one moment (before the first real campaign, after a first failure, when "
-            "deciding whether to keep spending) instead of listing features. Campaign Lab's "
-            "stated success criterion is that a learner can name a decision they changed "
-            "and explain its effect on contribution rather than on clicks or revenue.",
-        ),
     )
 }
 
-DEFAULT_PROMPT = "campaign-lab-next"
+DEFAULT_PROMPT = "grocery-reorder"
 
 
 class InterviewError(ValueError):
