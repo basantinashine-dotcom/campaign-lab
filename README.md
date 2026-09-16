@@ -1,6 +1,6 @@
 # Campaign Lab
 
-Understand how to run effective Instagram ad campaigns by practicing before you spend.
+Understand how to run effective ad campaigns by practicing before you spend.
 
 A guided, browser-based exercise for a small online store owner learning paid advertising. Create a fictional Ember & Earth candle campaign, simulate seven days, interpret its results, and test one change against a preserved baseline.
 
