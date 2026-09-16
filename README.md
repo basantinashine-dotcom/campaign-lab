@@ -1,42 +1,74 @@
-# Campaign Lab
+# Learn by Building
 
-Understand how to run effective ad campaigns by practicing before you spend.
+Learn data science, ad tech, and product thinking by building.
 
-A guided, browser-based exercise for a small online store owner learning paid advertising. Create a fictional Ember & Earth candle campaign, simulate seven days, interpret its results, and test one change against a preserved baseline.
+A growing collection of hands-on projects to explore concepts, experiment with ideas, and learn through code.
 
-## Run locally
+- **Data science:** Explore data, uncover patterns, and interpret results.
+- **Ad tech:** Understand advertising systems, campaign performance, and measurement.
+- **Product management:** Turn problems into products, test hypotheses, and evaluate trade-offs.
 
-Serve the `dist` directory with a static HTTP server, for example `python -m http.server 4317 --directory dist`, then open http://localhost:4317. ES modules require an HTTP server; do not open index.html directly from the filesystem.
+## Explore the projects
 
-Run `npm test` (Node 18+) for the simulation tests and `npm run check` for JavaScript syntax checks. There are no npm dependencies or build step. Google Fonts is optional; system fallbacks keep the interface usable offline once files are served locally.
+| Project | What you can learn | Open it |
+| --- | --- | --- |
+| **Campaign Lab** | Practice Instagram campaign decisions, compare one-variable experiments, and trace why simulated results changed. | [Source and instructions](apps/campaign-lab/) · [Web app](https://campaign-lab-instagram.basanti-nashine.chatgpt.site) |
 
-## How this app is built
+Campaign Lab currently runs in the browser using a fictional simulation. A backend, saved event dataset, and database are future learning milestones, not implemented features.
 
-- `dist/index.html` is the document shell and dialog markup.
-- `dist/style.css` controls appearance and responsive layouts.
-- `dist/app.js` handles the five-screen journey, visit-only state, validation, results, experiments, and learning-summary download.
-- `dist/engine.mjs` is a pure simulation module. Inputs produce results without touching the interface.
-- `tests/engine.test.mjs` verifies financial reconciliation, deterministic replay, one-variable changes, and input validation.
-- `dist/candle.png` is an original AI-generated image for the fictional shop.
+## Repository structure
 
-The app runs in the browser. It has no advertising connection, paid API, database, account system, or server business logic. Reloading clears the exercise. The optional browser WebMCP interface exposes read, stage, and simulate actions with the same validation as the UI.
+```text
+learn-by-building/
+├── apps/
+│   └── campaign-lab/
+│       ├── .openai/hosting.json
+│       ├── dist/
+│       ├── tests/
+│       ├── package.json
+│       └── README.md
+├── agents/
+│   └── README.md
+├── package.json
+└── README.md
+```
 
-## Model and limits
+Each app or agent belongs in its own folder and documents its setup, assumptions, and limitations. No agents have been added yet. Projects may use different languages and deploy independently.
 
-All coefficients are invented teaching assumptions, not empirical benchmarks or forecasts. Impressions follow spend/CPM, clicks and orders are Bernoulli draws from seeded random streams. Costs vary by day within a fixed fictional market. Replaying the same choices yields the same result. The same per-impression click and purchase draws are used for comparisons. The full lifetime budget is spent evenly across seven days.
+## Try Campaign Lab locally
 
-Audience, placement, message, discount, and budget saturation adjust explicit coefficients exposed in the app's assumptions dialog. The model does not judge free-form text, simulate Meta's auction algorithm, reproduce Advantage+, infer real audience size, or establish statistical significance. It omits attribution, tracking gaps, repeated exposure, inventory, organic purchases, returns, overhead, and repeat buyers. Contribution after fulfillment and ads is not net profit. Reels uses a still storyboard preview, not video generation.
+From the repository root, with Python installed:
 
-This first lesson intentionally uses one sales objective, one ad set, prepared ad concepts, and one-variable comparisons. Future scope should follow user research, especially whether beginners can transfer what they learn to real decisions.
+```sh
+python -m http.server 4317 --directory apps/campaign-lab/dist
+```
 
-## Product learning
+Open http://localhost:4317. Use a web server rather than opening the HTML file directly, because the app uses JavaScript modules.
 
-Customer hypothesis: an online store owner unsure how to make and evaluate their first Instagram advertising decisions.
+With Node.js 18 or later installed, run the existing checks from the root:
 
-Success criterion: after the exercise, the learner can name one decision they changed, explain why, and interpret its effect on contribution rather than just clicks or revenue.
+```sh
+npm test
+npm run check
+```
 
-The private Sites deployment is configured in `.openai/hosting.json`. Static files can also be hosted by any provider that supports ES modules. Meta and Instagram do not sponsor or endorse this tool.
+There are no npm dependencies to install for Campaign Lab. Root commands forward to the app's own package scripts.
 
-## Explainable experiments
+## Deployment
 
-Every change has a causal explanation derived from the engine: the changed assumption, impression cost, click probability, purchase probability, expected orders versus the realized seeded outcome, and a reconciled decomposition of contribution change into order volume, price, and advertising spend. Placement guidance compares all three surfaces using the same campaign settings. Editing an experiment marks its previous comparison as pending until rerun.
+Each project owns its deployment settings. Campaign Lab's Sites manifest is at `apps/campaign-lab/.openai/hosting.json`; its `dist` directory is relative to that app folder. The existing Site ID and web address are preserved.
+
+GitHub holds the collection. Sites uses a separate source repository for Campaign Lab, and a GitHub push does not automatically publish a new website version. For a Campaign Lab release, synchronize **the contents of `apps/campaign-lab/`** into the existing Campaign Lab Sites checkout, preserving its `.git` directory, then follow the Sites publishing workflow. Build or package from that standalone app checkout, not the collection root. Reuse the manifest's existing Site ID.
+
+This reorganization changes source paths only; it does not require replacing or redeploying the currently published app. New projects should use separate hosting configurations and Site IDs.
+
+## Add the next project
+
+1. Create `apps/<app-name>/` or `agents/<agent-name>/`.
+2. Include the code and a README explaining the problem, local setup, examples, and limitations.
+3. Keep credentials out of Git and document any required environment variables.
+4. Add the project to the table above. Add project-specific checks and deployment instructions as needed.
+
+This repository is public: every tracked project shares that visibility. Keep private projects in separate private repositories.
+
+**Explore the projects. Build something. Learn along the way.**

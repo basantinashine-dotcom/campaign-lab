@@ -1,1 +1,10 @@
-{"name":"campaign-lab","version":"0.1.0","private":true,"type":"module","description":"An Instagram campaign learning simulator","scripts":{"test":"node --test tests/*.test.mjs","check":"node --check dist/app.js && node --check dist/engine.mjs"}}
+{
+  "name": "learn-by-building",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hands-on projects for learning data science, ad tech, and product thinking.",
+  "scripts": {
+    "test": "npm --prefix apps/campaign-lab test",
+    "check": "npm --prefix apps/campaign-lab run check"
+  }
+}
