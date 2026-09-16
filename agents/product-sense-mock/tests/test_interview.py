@@ -150,19 +150,35 @@ class EndInterviewTests(unittest.TestCase):
     def setUp(self):
         self.state = InterviewState(prompt=PROMPTS["grocery-reorder"])
 
-    def test_rejects_empty_lists(self):
+    def test_requires_strengths_once_something_is_assessed(self):
+        self.state.record_signal("problem_framing", 3, "evidence", "gap")
         with self.assertRaises(InterviewError):
             self.state.end_interview("verdict", [], ["do better"], "next")
 
+    def test_nothing_assessed_means_no_strengths(self):
+        # With no answers there is no evidence to praise. Requiring a strength
+        # anyway is what pushed the live model to invent one.
+        self.state.end_interview("verdict", [], ["answer something"], "next")
+        self.assertEqual(self.state.debrief["strengths"], [])
+
+    def test_rejects_invented_strengths_when_nothing_assessed(self):
+        with self.assertRaises(InterviewError):
+            self.state.end_interview("verdict", ["stopped cleanly"], ["better"], "next")
+
+    def test_requires_at_least_one_improvement(self):
+        with self.assertRaises(InterviewError):
+            self.state.end_interview("verdict", [], [], "next")
+
     def test_rejects_blank_entries(self):
+        self.state.record_signal("problem_framing", 3, "evidence", "gap")
         with self.assertRaises(InterviewError):
             self.state.end_interview("verdict", ["good"], ["   "], "next")
 
     def test_cannot_end_twice(self):
-        self.state.end_interview("verdict", ["good"], ["better"], "next")
+        self.state.end_interview("verdict", [], ["better"], "next")
         self.assertTrue(self.state.finished)
         with self.assertRaises(InterviewError):
-            self.state.end_interview("verdict", ["good"], ["better"], "next")
+            self.state.end_interview("verdict", [], ["better"], "next")
 
 
 class DispatchTests(unittest.TestCase):

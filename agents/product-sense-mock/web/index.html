@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Product Sense Mock</title>
+  <meta name="description" content="Practice a product sense interview against a tool-using interviewer.">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand"><span class="mark" aria-hidden="true">PS</span>Product Sense <span>Mock</span></span>
+    <span class="lab-tag">LEARN BY BUILDING</span>
+    <button class="text-button" id="restart" type="button" hidden>New interview</button>
+  </header>
+
+  <noscript><p class="noscript">This page needs JavaScript to run the interview.</p></noscript>
+
+  <!-- Setup -->
+  <main id="setup-screen" class="screen">
+    <p class="kicker"><span>PRACTICE</span> Product sense interview</p>
+    <h1>Rehearse the interview before it counts.</h1>
+    <p class="intro">An interviewer asks one question at a time across five stages, pushes on vague answers, and quietly scores six dimensions. You see the scores at the end, not during.</p>
+
+    <form id="setup-form" class="setup-grid">
+      <fieldset class="panel">
+        <legend>Pick a question</legend>
+        <div id="prompt-choices" class="choices"></div>
+      </fieldset>
+
+      <div class="setup-side">
+        <fieldset class="panel">
+          <legend>Who interviews you</legend>
+          <label class="choice">
+            <input type="radio" name="mode" value="live" checked>
+            <span><strong>Claude</strong><small>A real interviewer that judges what you say. Uses your API credits; each turn can take a little while.</small></span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="mode" value="offline">
+            <span><strong>Offline script</strong><small>Fixed questions and keyword scoring. Free and instant, but the scores are not real feedback.</small></span>
+          </label>
+          <p id="live-warning" class="note warning" hidden>No API key was found in the terminal that started this server. Live interviews will probably fail. Stop the server, set <code>ANTHROPIC_API_KEY</code>, and start it again, or use the offline script.</p>
+        </fieldset>
+
+        <button class="primary wide-button" type="submit" id="start">Start interview</button>
+        <p id="setup-error" class="error" role="alert" hidden></p>
+      </div>
+    </form>
+  </main>
+
+  <!-- Interview -->
+  <main id="interview-screen" class="screen interview" hidden>
+    <aside class="rail">
+      <p class="eyebrow">STAGES</p>
+      <ol id="stages" class="stages"></ol>
+      <label class="notes-toggle">
+        <input type="checkbox" id="show-notes">
+        <span><strong>Show interviewer's notes</strong><small>Reveals the tool calls, including scores. Off keeps it like a real interview.</small></span>
+      </label>
+      <p class="rail-foot" id="mode-label"></p>
+    </aside>
+
+    <section class="conversation">
+      <div class="question-card">
+        <p class="eyebrow">YOUR QUESTION</p>
+        <p id="question" class="question"></p>
+      </div>
+
+      <div id="transcript" class="transcript" aria-live="polite"></div>
+
+      <div id="thinking" class="thinking" hidden>
+        <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span id="thinking-text">The interviewer is thinking</span>
+      </div>
+
+      <div id="error-bar" class="error-bar" role="alert" hidden>
+        <span id="error-text"></span>
+        <button type="button" class="secondary" id="retry" hidden>Try again</button>
+      </div>
+
+      <form id="composer" class="composer">
+        <label for="answer" class="visually-hidden">Your answer</label>
+        <textarea id="answer" rows="4" placeholder="Type your answer. Ctrl+Enter to send." disabled></textarea>
+        <div class="composer-actions">
+          <button type="button" class="text-button" id="quit" disabled>End interview and see debrief</button>
+          <button type="submit" class="primary" id="send" disabled>Send</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <!-- Debrief -->
+  <main id="debrief-screen" class="screen" hidden>
+    <p class="kicker"><span>DEBRIEF</span> <span id="debrief-mode" class="plain"></span></p>
+    <h1 id="debrief-headline"></h1>
+    <p class="intro" id="debrief-question"></p>
+
+    <div class="score-row">
+      <div class="panel score-panel">
+        <span class="eyebrow">SCORE</span>
+        <strong id="debrief-score"></strong>
+        <small id="debrief-score-note"></small>
+      </div>
+      <div class="debrief-actions">
+        <a class="secondary button-link" id="download" href="#">Download debrief (.md)</a>
+        <button class="primary" type="button" id="again">Start another interview</button>
+      </div>
+    </div>
+
+    <div class="panel table-panel">
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Dimension</th><th>Score</th><th>What you showed</th><th>What would raise it</th></tr></thead>
+          <tbody id="scorecard"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="debrief-grid">
+      <section class="panel" id="strengths-panel">
+        <h2>What worked</h2>
+        <ul id="strengths" class="list"></ul>
+      </section>
+      <section class="panel">
+        <h2>What to change</h2>
+        <ul id="improvements" class="list"></ul>
+      </section>
+      <section class="panel next-panel" id="next-panel">
+        <h2>Try this next</h2>
+        <p id="next-prompt"></p>
+      </section>
+    </div>
+
+    <details class="panel transcript-details">
+      <summary>Full transcript</summary>
+      <div id="final-transcript" class="transcript"></div>
+    </details>
+
+    <p class="subtle footnote">Scores are one interviewer's read of one practice conversation. They are not a hiring signal.</p>
+  </main>
+</body>
+</html>
