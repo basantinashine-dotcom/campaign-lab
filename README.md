@@ -13,6 +13,7 @@ A growing collection of hands-on projects to explore concepts, experiment with i
 | Project | What you can learn | Open it |
 | --- | --- | --- |
 | **Campaign Lab** | Practice Instagram campaign decisions, compare one-variable experiments, and trace why simulated results changed. | [Source and instructions](apps/campaign-lab/) · [Web app](https://campaign-lab-instagram.basanti-nashine.chatgpt.site) |
+| **LinkedIn Post Coach** | Design an AI review rubric, preserve an author's voice, and evaluate whether feedback is useful and grounded in the draft. | [Instructions and examples](agents/linkedin-post-coach/) |
 
 Campaign Lab currently runs in the browser using a fictional simulation. A backend, saved event dataset, and database are future learning milestones, not implemented features.
 
@@ -28,12 +29,23 @@ learn-by-building/
 │       ├── package.json
 │       └── README.md
 ├── agents/
+│   ├── linkedin-post-coach/
+│   │   ├── AGENT.md
+│   │   ├── examples/
+│   │   ├── tests/
+│   │   └── README.md
 │   └── README.md
 ├── package.json
 └── README.md
 ```
 
-Each app or agent belongs in its own folder and documents its setup, assumptions, and limitations. No agents have been added yet. Projects may use different languages and deploy independently.
+Each app or agent belongs in its own folder and documents its setup, assumptions, and limitations. Projects may use different languages and deploy independently.
+
+## Try LinkedIn Post Coach
+
+Copy [the reviewer instructions](agents/linkedin-post-coach/AGENT.md) into a new ChatGPT conversation, then send your post draft. Add the intended reader and purpose if you know them. It returns strengths, up to three prioritized improvements, and claims to check. Ask for `feedback-and-rewrite` when you also want a revision.
+
+This is a reusable instruction-based reviewer, not a hosted app or autonomous publishing agent. It needs access to ChatGPT, but no separate API key or LinkedIn connection. See the [setup guide](agents/linkedin-post-coach/) for an optional offline prompt builder and a worked example.
 
 ## Try Campaign Lab locally
 
@@ -52,7 +64,7 @@ npm test
 npm run check
 ```
 
-There are no npm dependencies to install for Campaign Lab. Root commands forward to the app's own package scripts.
+There are no npm dependencies to install for either project. Root commands run both projects' checks. These check code behavior; they do not evaluate a live model's editorial judgment.
 
 ## Deployment
 

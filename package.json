@@ -4,7 +4,7 @@
   "private": true,
   "description": "Hands-on projects for learning data science, ad tech, and product thinking.",
   "scripts": {
-    "test": "npm --prefix apps/campaign-lab test",
-    "check": "npm --prefix apps/campaign-lab run check"
+    "test": "npm --prefix apps/campaign-lab test && npm --prefix agents/linkedin-post-coach test",
+    "check": "npm --prefix apps/campaign-lab run check && npm --prefix agents/linkedin-post-coach run check"
   }
 }
