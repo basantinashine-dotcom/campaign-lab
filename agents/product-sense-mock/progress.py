@@ -20,7 +20,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from interview import DIMENSIONS, dimension_label
+from interview import DEFAULT_TRACK, TRACKS, dimension_label
 from session import CONTEXT_DIR
 
 PROGRESS_DIR = CONTEXT_DIR / "private" / "progress"
@@ -47,6 +47,7 @@ def build_record(session, model, finished_at):
         "finished_at": finished_at.isoformat(timespec="seconds"),
         "mode": session.mode,
         "model": model,
+        "track": {"key": state.track.key, "label": state.track.label},
         "prompt": {"key": state.prompt.key, "question": state.prompt.question},
         "level": {"key": state.level.key, "label": state.level.label},
         "scores": {row["dimension"]: row["score"] for row in card["rows"]},
@@ -78,8 +79,17 @@ def save_result(session, directory=PROGRESS_DIR, model="", now=None):
     return path
 
 
-def load_history(directory=PROGRESS_DIR):
-    """Every readable saved interview, oldest first. Unreadable files are skipped."""
+def record_track(record):
+    """The track a saved record belongs to. Records from before tracks existed are product sense."""
+    key = (record.get("track") or {}).get("key", DEFAULT_TRACK)
+    return key if key in TRACKS else DEFAULT_TRACK
+
+
+def load_history(directory=PROGRESS_DIR, track=None):
+    """Every readable saved interview, oldest first, optionally for one track only.
+
+    Unreadable files are skipped.
+    """
     directory = Path(directory)
     if not directory.is_dir():
         return []
@@ -91,19 +101,22 @@ def load_history(directory=PROGRESS_DIR):
             continue
         if not isinstance(record, dict) or not isinstance(record.get("scores"), dict):
             continue
+        if track is not None and record_track(record) != track:
+            continue
         records.append(record)
     records.sort(key=lambda r: str(r.get("finished_at", "")))
     return records
 
 
-def summarize(history):
-    """Per-stage averages and recent scores, plus the weakest stage.
+def summarize(history, track=DEFAULT_TRACK):
+    """Per-stage averages and recent scores for one track, plus the weakest stage.
 
-    Only stages with at least one score count toward ``weakest``. Ties break in
-    stage order, matching InterviewState.weakest.
+    ``history`` should already be that track's records. Only stages with at
+    least one score count toward ``weakest``. Ties break in stage order,
+    matching InterviewState.weakest.
     """
     stages = []
-    for dimension in DIMENSIONS:
+    for dimension in TRACKS[track].dimensions:
         scores = [
             r["scores"].get(dimension)
             for r in history
@@ -127,11 +140,15 @@ def summarize(history):
     }
 
 
-def summary_for_interviewer(history):
-    """A few lines for the interviewer's instructions, or '' with no history."""
+def summary_for_interviewer(history, track=DEFAULT_TRACK):
+    """A few lines for the interviewer's instructions, or '' with no history.
+
+    Only that track's interviews count; other tracks score different stages.
+    """
+    history = [r for r in history if record_track(r) == track]
     if not history:
         return ""
-    summary = summarize(history)
+    summary = summarize(history, track)
     lines = ["%d previous interview%s." % (summary["interviews"], "" if summary["interviews"] == 1 else "s")]
     for stage in summary["stages"]:
         if stage["count"]:
@@ -152,23 +169,36 @@ def summary_for_interviewer(history):
 
 
 def overview(history):
-    """What the Progress page shows: the summary plus one row per interview, newest first."""
-    summary = summarize(history)
-    summary["history"] = [
-        {
-            "finished_at": r.get("finished_at", ""),
-            "question": (r.get("prompt") or {}).get("question", ""),
-            "level": (r.get("level") or {}).get("label", ""),
-            "total": r.get("total"),
-            "possible": r.get("possible"),
-            "headline": r.get("headline", ""),
-            "scores": [
-                {"label": dimension_label(d), "score": r["scores"].get(d)} for d in DIMENSIONS
-            ],
-        }
-        for r in reversed(history)
-    ]
-    return summary
+    """What the Progress page shows: one section per track that has interviews.
+
+    Each section has that track's stage summary plus one row per interview,
+    newest first.
+    """
+    sections = []
+    for key, track in TRACKS.items():
+        records = [r for r in history if record_track(r) == key]
+        if not records:
+            continue
+        section = summarize(records, key)
+        section["key"] = key
+        section["label"] = track.label
+        section["history"] = [
+            {
+                "finished_at": r.get("finished_at", ""),
+                "question": (r.get("prompt") or {}).get("question", ""),
+                "level": (r.get("level") or {}).get("label", ""),
+                "total": r.get("total"),
+                "possible": r.get("possible"),
+                "headline": r.get("headline", ""),
+                "scores": [
+                    {"label": dimension_label(d), "score": r["scores"].get(d)}
+                    for d in track.dimensions
+                ],
+            }
+            for r in reversed(records)
+        ]
+        sections.append(section)
+    return {"interviews": len(history), "tracks": sections}
 
 
 def commit_message(record_path):

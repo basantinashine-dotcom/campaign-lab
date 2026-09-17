@@ -167,6 +167,36 @@ td.gap { color: var(--muted); }
 .transcript-details .transcript { margin-top: 18px; }
 .footnote { text-align: center; margin-top: 28px; }
 
+/* --- interview types ------------------------------------------------------ */
+.setup-main { display: grid; gap: 24px; align-content: start; }
+.track-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.track-choices .choice { margin-top: 0; }
+.track-stages { margin: 12px 0 0; }
+
+/* --- prompt runner -------------------------------------------------------- */
+.runner { border: 1px solid #c3c9f5; background: #f8f9ff; border-radius: 14px; padding: 16px 18px; }
+.runner-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.runner-head h2 { font-size: 1rem; margin: 0; }
+.runner > p { margin: 6px 0 10px; }
+.runner textarea { width: 100%; min-height: 96px; resize: vertical; border: 1px solid #c8d0df; border-radius: 10px; padding: 12px 14px; background: var(--white); color: var(--ink); font-family: ui-monospace, Consolas, monospace; font-size: .85rem; line-height: 1.5; }
+.runner textarea:disabled { background: #f0f2f7; }
+.runner-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 10px; }
+.runner.closed { opacity: .75; }
+
+.prompt-run { align-self: stretch; border: 1px solid #c3c9f5; border-radius: 12px; background: var(--white); overflow: hidden; }
+.prompt-run header { display: flex; justify-content: space-between; gap: 12px; padding: 8px 14px; background: #eef0ff; font-size: .72rem; letter-spacing: .1em; font-weight: 700; color: var(--blue); }
+.prompt-run header span:last-child { letter-spacing: 0; font-weight: 500; color: var(--muted); }
+.prompt-run .part { padding: 10px 14px; }
+.prompt-run .part + .part { border-top: 1px solid var(--line); }
+.prompt-run .part-label { display: block; font-size: .7rem; letter-spacing: .1em; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+.prompt-run pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, Consolas, monospace; font-size: .8rem; line-height: 1.55; color: var(--ink); max-height: 320px; overflow-y: auto; }
+
+/* --- progress sections ---------------------------------------------------- */
+.track-section + .track-section { margin-top: 40px; }
+.track-section > h2 { font-size: 1.3rem; margin-bottom: 4px; }
+.track-section > .subtle { margin: 0 0 16px; }
+.track-section .panel + .panel, .track-section .table-panel { margin-bottom: 16px; }
+
 /* --- private context and saving --------------------------------------- */
 .sync-panel h2 { font-size: 1rem; margin-bottom: 6px; }
 .sync-panel p { margin: 0 0 12px; }
@@ -223,6 +253,10 @@ td.gap { color: var(--muted); }
   .composer-actions { flex-direction: column-reverse; align-items: stretch; }
   .composer-actions .primary { width: 100%; }
   td:first-child { white-space: normal; }
+  .track-choices { grid-template-columns: 1fr; }
+  /* A pinned answer box would cover half of a short screen, including prompt output. */
+  .composer { position: static; background: none; padding-top: 0; }
+  .runner-actions { flex-direction: column-reverse; align-items: stretch; }
   .history-list li { grid-template-columns: 1fr auto; }
   .history-list .when { grid-column: 1 / -1; }
   .save-status { text-align: left; }

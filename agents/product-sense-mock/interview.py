@@ -1,4 +1,4 @@
-"""Interview structure for the product sense mock agent.
+"""Interview structure for the Product Sense Mock agent.
 
 Pure data, validation, and state transitions. No network calls, no Anthropic
 SDK import, and no printing. Both the live agent (``session.py``) and the
@@ -18,9 +18,9 @@ SCORE_LABELS = {
     4: "strong",
 }
 
-# The rubric: one dimension per stage. Order matters: it is the order of the
-# scorecard.
-DIMENSIONS = {
+# Each interview type (a Track, below) has its own rubric: one dimension per
+# stage, in scorecard order. Dimension keys are unique across tracks.
+PRODUCT_SENSE_DIMENSIONS = {
     "clarifying": (
         "Asks only questions whose answers would change what gets built, and states "
         "product context as assumptions instead of asking the interviewer to decide."
@@ -66,7 +66,7 @@ class Stage:
     probe_budget: int
 
 
-STAGES = (
+PRODUCT_SENSE_STAGES = (
     Stage(
         "clarify",
         "Clarify",
@@ -120,11 +120,23 @@ STAGES = (
 
 @dataclass(frozen=True)
 class Level:
-    """The seniority the candidate is practising for. It changes the bar, not the stages."""
+    """The seniority the candidate is practising for.
+
+    It changes the bar the interviewer judges against, not the stages or the
+    questions. ``bars`` holds one bar per track, keyed by track key.
+    """
 
     key: str
     label: str
-    bar: str
+    bars: dict
+
+    def bar_for(self, track_key):
+        return self.bars[track_key]
+
+    @property
+    def bar(self):
+        """The product sense bar, kept under the old name."""
+        return self.bars["product-sense"]
 
 
 LEVELS = {
@@ -133,18 +145,40 @@ LEVELS = {
         Level(
             "pm",
             "PM",
-            "Below Senior PM. In Strategy, a clear mission and a sensible north star, "
-            "covered briefly, is a solid answer; do not mark them down for skipping "
-            "competitive analysis or a long-term arc. Elsewhere, reward clear structure and "
-            "decisiveness over depth of market knowledge.",
+            {
+                "product-sense": (
+                    "Below Senior PM. In Strategy, a clear mission and a sensible north star, "
+                    "covered briefly, is a solid answer; do not mark them down for skipping "
+                    "competitive analysis or a long-term arc. Elsewhere, reward clear structure "
+                    "and decisiveness over depth of market knowledge."
+                ),
+                "ai-pm": (
+                    "Below Senior PM. A clear scope, one sensible success metric with at least "
+                    "one guardrail, a working prompt with some narration, and a concrete list of "
+                    "what the model must not do alone is a solid answer. Do not mark them down "
+                    "for missing organisational detail such as approval chains."
+                ),
+            },
         ),
         Level(
             "senior",
             "Senior PM+",
-            "Senior PM and above. In Strategy, a solid answer also explains why this company "
-            "specifically, names the competitive gap, and sketches the longer arc; at this "
-            "level Strategy often decides the interview. Expect sizing with stated "
-            "reasoning in Users, and specific, justified cuts in MVP.",
+            {
+                "product-sense": (
+                    "Senior PM and above. In Strategy, a solid answer also explains why this "
+                    "company specifically, names the competitive gap, and sketches the longer "
+                    "arc; at this level Strategy often decides the interview. Expect sizing with "
+                    "stated reasoning in Users, and specific, justified cuts in MVP."
+                ),
+                "ai-pm": (
+                    "Senior PM and above. Expect scope tied to a business outcome, guardrails "
+                    "with explicit stop thresholds, and a prompt iteration grounded in what the "
+                    "output actually showed. In Risk & judgment, a solid answer shows ownership: "
+                    "who approves what, how trust is earned before the model is given more "
+                    "autonomy, and how they would bring legal, operations, or other stakeholders "
+                    "along. Reward judgment over knowledge of particular models."
+                ),
+            },
         ),
     )
 }
@@ -165,6 +199,7 @@ class Prompt:
     question: str
     context: str
     brief: str
+    track: str = "product-sense"
 
 
 PROMPTS = {
@@ -230,10 +265,188 @@ PROMPTS = {
             "premium subscription. It has integrations with major car systems and "
             "smartwatches, but no hardware of its own. No fixed timeline.",
         ),
+        Prompt(
+            "support-replies",
+            "Design an AI assistant that drafts replies for a customer support team.",
+            "Strong answers keep a human sending by default and treat drafts as the product, "
+            "not auto-replies. Good metrics: share of drafts sent with light edits, handle "
+            "time; guardrails: customer satisfaction, reopened tickets, and replies that "
+            "promise refunds or exceptions the policy does not allow. A good prompt demo "
+            "grounds the draft in a help-centre article and the ticket, not the model's "
+            "general knowledge. Refunds, account changes, and policy exceptions should never "
+            "be the model's call alone.",
+            "Fictional company: Helpline, customer support software used by about 2,000 "
+            "mid-size online retailers. Mission: make every customer feel answered. Competes "
+            "with large helpdesk suites that are all adding AI features. Agents handle about "
+            "60 tickets a day; median first response is 9 hours. Refunds and account changes "
+            "need a team lead's approval. Available data: past tickets with agent replies, "
+            "help-centre articles, and each retailer's tone guidelines. Retailers' legal teams "
+            "worry about the assistant promising things the policy does not allow.",
+            "ai-pm",
+        ),
+        Prompt(
+            "visit-summaries",
+            "Add AI-written summaries of doctor visit notes to a patient health app.",
+            "The highest-stakes prompt. Strong answers say plainly that the summary must not "
+            "add medical advice or anything not in the note, keep clinicians accountable, and "
+            "design escalation for anything alarming or unclear. Good metrics: patients "
+            "understanding their next steps, fewer 'what does this mean' calls; guardrails: "
+            "summary errors against the source note, and patients acting on something the "
+            "note did not say. A good prompt demo summarises a sample note and checks it "
+            "against the original. Stakeholders include clinicians and compliance.",
+            "Fictional company: CareBridge, a patient portal used by 40 clinics and about "
+            "600,000 patients. Mission: help patients understand and act on their care. "
+            "Clinicians' visit notes are written for other clinicians and full of jargon, and "
+            "clinics get many calls asking what notes mean. Clinicians are legally "
+            "responsible for medical advice and have no time to review extra documents. "
+            "Health privacy rules apply. The portal is used in English and Spanish.",
+            "ai-pm",
+        ),
+        Prompt(
+            "expense-reconciliation",
+            "Build an AI agent that helps small businesses categorize and reconcile their "
+            "expenses.",
+            "An agent close to money and taxes. Strong answers have the agent suggest rather "
+            "than post, use confidence thresholds and an audit trail, and leave anything that "
+            "moves money or affects filings to a person. Good metrics: time owners spend on "
+            "books, share of suggestions accepted; guardrails: corrections found by the "
+            "accountant, reversed entries. A good prompt demo categorises a few messy bank "
+            "transactions and says how it would handle uncertainty.",
+            "Fictional company: Ledgerly, a bookkeeping app for about 250,000 small "
+            "businesses with bank feeds connected. Mission: give owners back the hours they "
+            "spend on their books. Owners spend about 5 hours a month categorising "
+            "transactions; many have an accountant who reviews the books each quarter. "
+            "Mistakes can change tax filings. Competes with large accounting suites that use "
+            "rule-based auto-categorisation.",
+            "ai-pm",
+        ),
+        Prompt(
+            "job-matching",
+            "Use an LLM to match job seekers to open roles in a hiring marketplace.",
+            "Strong answers keep the model recommending and ranking, never rejecting "
+            "candidates on its own, and treat fairness as a first-class guardrail with regular "
+            "checks for different outcomes across groups. Good metrics: interviews per "
+            "application, time to hire; guardrails: outcome gaps between groups, employer "
+            "complaints about poor matches. A good prompt demo matches one candidate profile "
+            "to a few roles and explains why. Stakeholders include legal and employers.",
+            "Fictional company: Shortlist, a hiring marketplace for hourly and entry-level "
+            "roles with about 3 million job seekers and 40,000 employers. Mission: get people "
+            "into good work faster. Seekers apply to 30 or more jobs on average; employers "
+            "complain about applicants who are not qualified. Anti-discrimination law applies "
+            "to hiring decisions, and some places regulate automated hiring tools. Profiles "
+            "include work history, availability, and location.",
+            "ai-pm",
+        ),
     )
 }
 
-DEFAULT_PROMPT = "grocery-reorder"
+
+AI_PM_DIMENSIONS = {
+    "scope": (
+        "Scopes the problem out loud before solving: what the user is trying to do, what "
+        "done looks like, and what is deliberately not being solved."
+    ),
+    "hypothesis_metrics": (
+        "States a hypothesis, one main success metric, and guardrail metrics with an "
+        "explicit condition for stopping the test."
+    ),
+    "prompt_demo": (
+        "Writes a small, clean prompt, runs it, narrates what they are doing and seeing, and "
+        "says what they would change next."
+    ),
+    "risk_judgment": (
+        "Names what the model must not act on alone, and how they would manage risk, build "
+        "trust, weigh tradeoffs, and align stakeholders."
+    ),
+}
+
+AI_PM_STAGES = (
+    Stage(
+        "scope",
+        "Scope",
+        ("scope",),
+        "Ask them to scope the problem out loud: what the user is trying to do, what done "
+        "looks like, and what they are deliberately not solving.",
+        2,
+    ),
+    Stage(
+        "hypothesis",
+        "Hypothesis & metrics",
+        ("hypothesis_metrics",),
+        "Ask for their hypothesis, the one metric that would show it worked, and the "
+        "guardrail metrics that would make them stop the test.",
+        2,
+    ),
+    Stage(
+        "prompt_demo",
+        "Prompt demo",
+        ("prompt_demo",),
+        "Ask them to write a small prompt for the core AI behaviour and run it with the "
+        "prompt runner on their screen, narrating as they go, then say what they would "
+        "change next.",
+        3,
+    ),
+    Stage(
+        "risk",
+        "Risk & judgment",
+        ("risk_judgment",),
+        "Ask what they would not let the model act on alone, and how they would manage "
+        "risk, earn trust, weigh tradeoffs, and align stakeholders.",
+        2,
+    ),
+)
+
+
+@dataclass(frozen=True)
+class Track:
+    """One kind of interview: its own stages, rubric, and practice questions.
+
+    ``runner_stage`` names the stage, if any, where the candidate can run their
+    own prompt against a model and the interviewer judges the result.
+    """
+
+    key: str
+    label: str
+    description: str
+    dimensions: dict
+    stages: tuple
+    default_prompt: str
+    runner_stage: str = ""
+
+
+TRACKS = {
+    track.key: track
+    for track in (
+        Track(
+            "product-sense",
+            "Product sense",
+            "a practice product sense interview",
+            PRODUCT_SENSE_DIMENSIONS,
+            PRODUCT_SENSE_STAGES,
+            "grocery-reorder",
+        ),
+        Track(
+            "ai-pm",
+            "AI PM",
+            "a practice AI product management interview",
+            AI_PM_DIMENSIONS,
+            AI_PM_STAGES,
+            "support-replies",
+            runner_stage="prompt_demo",
+        ),
+    )
+}
+
+DEFAULT_TRACK = "product-sense"
+DEFAULT_PROMPT = TRACKS[DEFAULT_TRACK].default_prompt
+
+# The product sense rubric and stages, kept under their original names.
+DIMENSIONS = PRODUCT_SENSE_DIMENSIONS
+STAGES = PRODUCT_SENSE_STAGES
+
+
+def prompts_for(track_key):
+    return [p for p in PROMPTS.values() if p.track == track_key]
 
 
 class InterviewError(ValueError):
@@ -272,19 +485,23 @@ class InterviewState:
     # --- read-only views -------------------------------------------------
 
     @property
+    def track(self):
+        return TRACKS[self.prompt.track]
+
+    @property
     def finished(self):
         return self.debrief is not None
 
     @property
     def past_last_stage(self):
-        return self.stage_index >= len(STAGES)
+        return self.stage_index >= len(self.track.stages)
 
     @property
     def stage(self):
         """The current stage, or None once every stage has been advanced past."""
         if self.past_last_stage:
             return None
-        return STAGES[self.stage_index]
+        return self.track.stages[self.stage_index]
 
     @property
     def probes_remaining(self):
@@ -307,10 +524,10 @@ class InterviewState:
     # --- tool implementations --------------------------------------------
 
     def record_signal(self, dimension, score, evidence, gap):
-        if dimension not in DIMENSIONS:
+        if dimension not in self.track.dimensions:
             raise InterviewError(
                 "Unknown dimension %r. Valid dimensions: %s"
-                % (dimension, ", ".join(DIMENSIONS))
+                % (dimension, ", ".join(self.track.dimensions))
             )
         if isinstance(score, bool) or not isinstance(score, int):
             raise InterviewError("Score must be an integer, got %r." % (score,))
@@ -392,7 +609,7 @@ class InterviewState:
             "brief": stage.brief,
             "probe_budget": stage.probe_budget,
             "probes_remaining": stage.probe_budget,
-            "stages_remaining": len(STAGES) - self.stage_index - 1,
+            "stages_remaining": len(self.track.stages) - self.stage_index - 1,
             "left_unassessed": left_uncovered,
             "guidance": "Open the %s stage with one question." % stage.label,
         }
@@ -440,7 +657,7 @@ class InterviewState:
         zero would be a worse lie than saying it was never assessed.
         """
         rows = []
-        for dimension, description in DIMENSIONS.items():
+        for dimension, description in self.track.dimensions.items():
             signal = self.signals.get(dimension)
             rows.append(
                 {
@@ -469,15 +686,16 @@ class InterviewState:
         """
         if not self.signals:
             return None
-        ordered = [d for d in DIMENSIONS if d in self.signals]
+        ordered = [d for d in self.track.dimensions if d in self.signals]
         return min(ordered, key=lambda d: self.signals[d].score)
 
 
 def dimension_label(dimension):
     """Human name for a dimension: the label of the stage that scores it."""
-    for stage in STAGES:
-        if dimension in stage.focus:
-            return stage.label
+    for track in TRACKS.values():
+        for stage in track.stages:
+            if dimension in stage.focus:
+                return stage.label
     return dimension.replace("_", " ")
 
 
@@ -488,110 +706,117 @@ def dimension_label(dimension):
 # of its properties in ``required``. The state machine still validates on top
 # of that, because a JSON schema cannot express "a score below 4 needs a gap".
 
-TOOLS = [
-    {
-        "name": "record_signal",
-        "description": (
-            "Record what the candidate demonstrated on ONE rubric dimension. Call this as "
-            "soon as you can judge a dimension, before deciding whether to probe again. The "
-            "result tells you which dimensions in this stage are still uncovered and how "
-            "many probes you have left."
-        ),
-        "strict": True,
-        "input_schema": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "dimension": {
-                    "type": "string",
-                    "enum": list(DIMENSIONS),
-                    "description": "Which rubric dimension this judgement is about.",
+def _build_tools(dimensions):
+        return [
+        {
+            "name": "record_signal",
+            "description": (
+                "Record what the candidate demonstrated on ONE rubric dimension. Call this as "
+                "soon as you can judge a dimension, before deciding whether to probe again. The "
+                "result tells you which dimensions in this stage are still uncovered and how "
+                "many probes you have left."
+            ),
+            "strict": True,
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "dimension": {
+                        "type": "string",
+                        "enum": list(dimensions),
+                        "description": "Which rubric dimension this judgement is about.",
+                    },
+                    "score": {
+                        "type": "integer",
+                        "enum": [1, 2, 3, 4],
+                        "description": "1 missing, 2 partial, 3 solid, 4 strong.",
+                    },
+                    "evidence": {
+                        "type": "string",
+                        "description": (
+                            "A short quote or close paraphrase of what the candidate actually "
+                            "said, not your opinion of it."
+                        ),
+                    },
+                    "gap": {
+                        "type": "string",
+                        "description": (
+                            "What a higher score would have required. Pass an empty string only "
+                            "for a score of 4."
+                        ),
+                    },
                 },
-                "score": {
-                    "type": "integer",
-                    "enum": [1, 2, 3, 4],
-                    "description": "1 missing, 2 partial, 3 solid, 4 strong.",
-                },
-                "evidence": {
-                    "type": "string",
-                    "description": (
-                        "A short quote or close paraphrase of what the candidate actually "
-                        "said, not your opinion of it."
-                    ),
-                },
-                "gap": {
-                    "type": "string",
-                    "description": (
-                        "What a higher score would have required. Pass an empty string only "
-                        "for a score of 4."
-                    ),
-                },
+                "required": ["dimension", "score", "evidence", "gap"],
             },
-            "required": ["dimension", "score", "evidence", "gap"],
         },
-    },
-    {
-        "name": "advance_stage",
-        "description": (
-            "Move the interview to the next stage. Call this once the current stage's "
-            "dimension is recorded, or when a tool result tells you the probe budget is "
-            "spent. The result gives you the next stage's focus and budget."
-        ),
-        "strict": True,
-        "input_schema": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "reason": {
-                    "type": "string",
-                    "description": "One sentence on why this stage is done.",
-                }
+        {
+            "name": "advance_stage",
+            "description": (
+                "Move the interview to the next stage. Call this once the current stage's "
+                "dimension is recorded, or when a tool result tells you the probe budget is "
+                "spent. The result gives you the next stage's focus and budget."
+            ),
+            "strict": True,
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "One sentence on why this stage is done.",
+                    }
+                },
+                "required": ["reason"],
             },
-            "required": ["reason"],
         },
-    },
-    {
-        "name": "end_interview",
-        "description": (
-            "End the interview and file the debrief. Call this after the final stage has "
-            "been advanced past, or if the candidate asks to stop early."
-        ),
-        "strict": True,
-        "input_schema": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "headline": {
-                    "type": "string",
-                    "description": "One sentence verdict on the interview overall.",
+        {
+            "name": "end_interview",
+            "description": (
+                "End the interview and file the debrief. Call this after the final stage has "
+                "been advanced past, or if the candidate asks to stop early."
+            ),
+            "strict": True,
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "headline": {
+                        "type": "string",
+                        "description": "One sentence verdict on the interview overall.",
+                    },
+                    "strengths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Two or three things the candidate did well, each tied to something "
+                            "they actually said. Pass an empty list if nothing was assessed."
+                        ),
+                    },
+                    "improvements": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Two or three specific changes that would raise a score, each naming "
+                            "the stage it would move."
+                        ),
+                    },
+                    "next_prompt": {
+                        "type": "string",
+                        "description": (
+                            "A different practice prompt aimed at their weakest stage."
+                        ),
+                    },
                 },
-                "strengths": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": (
-                        "Two or three things the candidate did well, each tied to something "
-                        "they actually said. Pass an empty list if nothing was assessed."
-                    ),
-                },
-                "improvements": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": (
-                        "Two or three specific changes that would raise a score, each naming "
-                        "the stage it would move."
-                    ),
-                },
-                "next_prompt": {
-                    "type": "string",
-                    "description": (
-                        "A different practice prompt aimed at their weakest stage."
-                    ),
-                },
+                "required": ["headline", "strengths", "improvements", "next_prompt"],
             },
-            "required": ["headline", "strengths", "improvements", "next_prompt"],
         },
-    },
-]
+    ]
+
+
+TRACK_TOOLS = {key: _build_tools(track.dimensions) for key, track in TRACKS.items()}
+
+# Product sense tools, kept under the old name.
+TOOLS = TRACK_TOOLS["product-sense"]
 
 
 def dispatch(state, name, tool_input):
@@ -625,6 +850,8 @@ def render_debrief(state, when=None):
     debrief = state.debrief or {}
     lines = ["# Product sense debrief", ""]
     lines.append("**Prompt:** %s" % state.prompt.question)
+    lines.append("")
+    lines.append("**Interview:** %s" % state.track.label)
     lines.append("")
     lines.append("**Level:** %s" % state.level.label)
     lines.append("")

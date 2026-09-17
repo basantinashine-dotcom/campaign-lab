@@ -22,15 +22,23 @@
 
   <!-- Setup -->
   <main id="setup-screen" class="screen">
-    <p class="kicker"><span>PRACTICE</span> Product sense interview</p>
+    <p class="kicker"><span>PRACTICE</span> PM interviews</p>
     <h1>Rehearse the interview before it counts.</h1>
-    <p class="intro">Six stages: Clarify, Strategy, Users, Pain points, Solutions, and MVP. You start by asking the questions; after that, the interviewer asks one question at a time, pushes on vague answers, and quietly scores each stage. You see the scores at the end, not during.</p>
+    <p class="intro">The interviewer asks one question at a time, pushes on vague answers, and quietly scores each stage. You see the scores at the end, not during.</p>
 
     <form id="setup-form" class="setup-grid">
-      <fieldset class="panel">
-        <legend>Pick a question</legend>
-        <div id="prompt-choices" class="choices"></div>
-      </fieldset>
+      <div class="setup-main">
+        <fieldset class="panel">
+          <legend>Interview type</legend>
+          <div id="track-choices" class="track-choices"></div>
+          <p class="subtle track-stages" id="track-stages"></p>
+        </fieldset>
+
+        <fieldset class="panel">
+          <legend>Pick a question</legend>
+          <div id="prompt-choices" class="choices"></div>
+        </fieldset>
+      </div>
 
       <div class="setup-side">
         <fieldset class="panel">
@@ -94,6 +102,20 @@
         <span id="error-text"></span>
         <button type="button" class="secondary" id="retry" hidden>Try again</button>
       </div>
+
+      <section id="runner" class="runner" hidden aria-labelledby="runner-title">
+        <div class="runner-head">
+          <h2 id="runner-title">Prompt runner</h2>
+          <span class="subtle" id="runner-left"></span>
+        </div>
+        <p class="subtle" id="runner-note">Write a small prompt and run it. The output appears in the conversation. Then, in the answer box below, narrate what you did, what you see, and what you'd change next.</p>
+        <label for="runner-prompt" class="visually-hidden">Your prompt</label>
+        <textarea id="runner-prompt" rows="5" placeholder="Your prompt"></textarea>
+        <div class="runner-actions">
+          <span class="subtle" id="runner-count"></span>
+          <button type="button" class="secondary" id="runner-run">Run prompt</button>
+        </div>
+      </section>
 
       <form id="composer" class="composer">
         <label for="answer" class="visually-hidden">Your answer</label>
@@ -168,21 +190,7 @@
       <p class="subtle">Finish an interview with Claude and your stage scores appear here. Offline runs aren't tracked, because their keyword scores aren't real feedback.</p>
     </div>
 
-    <div id="progress-body" hidden>
-      <div class="panel table-panel">
-        <div class="table-scroll">
-          <table>
-            <thead><tr><th>Stage</th><th>Average</th><th>Recent scores, oldest to newest</th></tr></thead>
-            <tbody id="progress-stages"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <section class="panel">
-        <h2>Past interviews</h2>
-        <ul id="progress-history" class="history-list"></ul>
-      </section>
-    </div>
+    <div id="progress-body" hidden></div>
 
     <p class="subtle footnote">Saved in context/private/progress on this computer, and backed up to your private GitHub repository when one is set up.</p>
   </main>

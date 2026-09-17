@@ -3,6 +3,7 @@
 Markdown files here are added to the interviewer's instructions at the start of every live interview, as guidance on what strong answers look like at each stage. The interviewer uses them to judge and to decide what to probe. It is told never to quote them or coach from them during the interview.
 
 - Every `.md` file in this folder and its subfolders is loaded in alphabetical order by path. README files are skipped.
+- A file inside a folder named after an interview type loads only for that type: `ai-pm/` or `private/ai-pm/` for AI PM, `product-sense/` or `private/product-sense/` for product sense. Everything else loads for both.
 - The web server reads the folder fresh for each interview, so edits take effect without a restart. The setup page lists the files it found.
 - An empty folder is fine. The interviewer then judges from the built-in rubric in `interview.py`.
 - Interview results are saved as JSON in `private/progress/`. Only `.md` files are loaded, so results never become reference material; the interviewer gets a short summary of them instead.

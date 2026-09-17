@@ -160,8 +160,11 @@ class SummaryTests(unittest.TestCase):
         old = dict(record("2026-09-15T09:00:00", clarifying=2), total=2, possible=4)
         new = dict(record("2026-09-17T09:00:00", clarifying=4), total=4, possible=4)
         data = overview([old, new])
-        self.assertEqual([h["total"] for h in data["history"]], [4, 2])
-        self.assertEqual(data["history"][0]["scores"][0], {"label": "Clarify", "score": 4})
+        self.assertEqual(data["interviews"], 2)
+        (section,) = data["tracks"]
+        self.assertEqual(section["label"], "Product sense")
+        self.assertEqual([h["total"] for h in section["history"]], [4, 2])
+        self.assertEqual(section["history"][0]["scores"][0], {"label": "Clarify", "score": 4})
 
 
 class InstructionsHistoryTests(unittest.TestCase):

@@ -145,7 +145,10 @@ class WebServerTests(unittest.TestCase):
     def test_config_lists_prompts_without_exposing_any_key(self):
         response, data = self.request("GET", "/api/config")
         self.assertEqual(response.status, 200)
-        self.assertEqual(len(data["prompts"]), 4)
+        self.assertEqual(len(data["prompts"]), 8)
+        self.assertEqual(
+            sorted({p["track"] for p in data["prompts"]}), ["ai-pm", "product-sense"]
+        )
         self.assertEqual(data["default_prompt"], "grocery-reorder")
         self.assertNotIn("sk-ant", json.dumps(data))
 
@@ -334,8 +337,10 @@ class ProgressAndSavingTests(unittest.TestCase):
         self.finish_live_interview()
         _, data = self.request("GET", "/api/progress")
         self.assertEqual(data["interviews"], 1)
-        self.assertEqual(data["weakest"], "Clarify")
-        self.assertEqual(data["history"][0]["total"], 2)
+        (section,) = data["tracks"]
+        self.assertEqual(section["key"], "product-sense")
+        self.assertEqual(section["weakest"], "Clarify")
+        self.assertEqual(section["history"][0]["total"], 2)
 
     def test_next_interview_is_told_about_the_history(self):
         self.finish_live_interview()
