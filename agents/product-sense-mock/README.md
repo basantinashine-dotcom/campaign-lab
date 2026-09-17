@@ -7,6 +7,10 @@ Claude plays the interviewer. It scores each stage as it goes, judged against th
 - **Product sense:** six stages, from clarifying questions you ask to an MVP.
 - **AI PM:** four stages, including a **prompt demo** where you run your own prompt against a model and narrate what you see.
 
+![Product Sense Mock: choosing an AI PM interview, running a prompt in the prompt demo, the stage-by-stage debrief, and the progress page](docs/demo.gif)
+
+*A demo session with sample answers and sample history, not a real interview or real scores.* Full-size screenshots: [start](docs/screenshots/1-start.png) · [prompt demo](docs/screenshots/2-prompt-demo.png) · [debrief](docs/screenshots/3-debrief.png) · [progress](docs/screenshots/4-progress.png)
+
 ## Run it in your browser
 
 ```sh

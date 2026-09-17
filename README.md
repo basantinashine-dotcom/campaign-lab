@@ -20,6 +20,10 @@ Campaign Lab currently runs in the browser using a fictional simulation. A backe
 
 Product Sense Mock runs on your own computer, in a local browser page or the terminal. It has an offline mode that needs no API key, and a live mode that calls the Anthropic API.
 
+![Product Sense Mock demo: start page, AI PM prompt demo, debrief, and progress](agents/product-sense-mock/docs/demo.gif)
+
+*Product Sense Mock, shown with a demo session and sample answers.*
+
 ## Repository structure
 
 ```text

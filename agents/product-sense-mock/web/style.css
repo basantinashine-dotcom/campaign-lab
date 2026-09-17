@@ -140,7 +140,7 @@ input[type=radio], input[type=checkbox] { accent-color: var(--blue); width: 17px
 .score-panel { min-width: 240px; }
 .score-panel strong { display: block; font-family: Manrope, system-ui, sans-serif; font-size: 2.4rem; letter-spacing: -.05em; line-height: 1.1; }
 .score-panel small { display: block; color: var(--muted); font-size: .82rem; margin-top: 6px; }
-.debrief-actions { display: flex; gap: 12px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+.debrief-actions { display: flex; gap: 12px; align-items: center; justify-content: flex-end; margin-left: auto; flex-wrap: wrap; }
 
 .table-panel { padding: 8px 20px; margin-bottom: 20px; }
 .table-scroll { overflow-x: auto; }
